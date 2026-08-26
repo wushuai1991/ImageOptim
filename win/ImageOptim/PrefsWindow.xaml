@@ -100,6 +100,10 @@
                                 <TextBlock Text="并发文件数：" VerticalAlignment="Center" />
                                 <TextBox x:Name="TxtConcurrent" Width="60" Text="{Binding RunConcurrentFiles}" Margin="8,0,0,0" />
                             </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <TextBlock Text="单次添加文件提醒阈值：" VerticalAlignment="Center" />
+                                <TextBox x:Name="TxtAddThreshold" Width="60" Text="{Binding AddFilesThreshold}" Margin="8,0,0,0" />
+                            </StackPanel>
                         </StackPanel>
                     </GroupBox>
 

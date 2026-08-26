@@ -19,6 +19,9 @@ public partial class PrefsWindow : Window
         if (int.TryParse(TxtConcurrent.Text, out int concurrent))
             _prefs.RunConcurrentFiles = Math.Max(1, concurrent);
 
+        if (int.TryParse(TxtAddThreshold.Text, out int threshold))
+            _prefs.AddFilesThreshold = Math.Max(1, threshold);
+
         // Guetzli 联动：启用时提高 JPEG 质量下限并强制剥离元数据
         if (_prefs.GuetzliEnabled)
         {

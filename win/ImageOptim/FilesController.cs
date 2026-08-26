@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace ImageOptim;
 
@@ -28,8 +29,8 @@ public sealed class FilesController
     {
         _queue = queue;
         _prefs = prefs;
-        _queue.BusyStateChanged += () => Application.Current.Dispatcher.Invoke(UpdateStoppableState);
-        _queue.QueueFinished += () => Application.Current.Dispatcher.Invoke(UpdateStoppableState);
+        _queue.BusyStateChanged += () => Application.Current.Dispatcher.BeginInvoke(UpdateStoppableState);
+        _queue.QueueFinished += () => Application.Current.Dispatcher.BeginInvoke(UpdateStoppableState);
     }
 
     /// <summary>添加一批路径（文件或目录）。</summary>
@@ -66,7 +67,7 @@ public sealed class FilesController
         {
             _queue.AddDirectory(dir, foundFiles =>
             {
-                Application.Current.Dispatcher.Invoke(() =>
+                Application.Current.Dispatcher.BeginInvoke(() =>
                 {
                     var batch = new List<JobItem>();
                     foreach (var f in foundFiles)

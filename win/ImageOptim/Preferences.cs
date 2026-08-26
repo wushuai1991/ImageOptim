@@ -51,6 +51,9 @@ public sealed class Preferences
     // 窗口选项
     public bool WindowTopmost { get; set; } = false;
 
+    // 交互提醒
+    public int AddFilesThreshold { get; set; } = 2000;
+
     // 仅用于 Guetzli 联动状态（不持久化也行，但保持一致）
     [JsonIgnore]
     public bool JpegTranStripAllSetByGuetzli { get; set; }

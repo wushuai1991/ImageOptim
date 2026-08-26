@@ -78,6 +78,56 @@ public sealed class JobQueue
         });
     }
 
+    /// <summary>统计单次添加的图片文件总数（含目录递归扫描，遵循与扫描一致的过滤规则），超过 stopAt 后提前停止以加速。</summary>
+    public int CountFiles(IEnumerable<string> paths, int stopAt)
+    {
+        var extensions = _prefs.EnabledExtensions();
+        int count = 0;
+        foreach (var p in paths)
+        {
+            if (count > stopAt)
+                break;
+
+            if (Directory.Exists(p))
+                CountDirectoryFiles(p, extensions, ref count, stopAt);
+            else if (File.Exists(p))
+            {
+                var ext = System.IO.Path.GetExtension(p).TrimStart('.');
+                if (extensions.Contains(ext))
+                    count++;
+            }
+        }
+        return count;
+    }
+
+    private static void CountDirectoryFiles(string path, HashSet<string> extensions, ref int count, int stopAt)
+    {
+        foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.TopDirectoryOnly))
+        {
+            if (count > stopAt)
+                return;
+            var ext = System.IO.Path.GetExtension(file).TrimStart('.');
+            if (extensions.Contains(ext))
+                count++;
+        }
+
+        foreach (var dir in Directory.EnumerateDirectories(path, "*", SearchOption.TopDirectoryOnly))
+        {
+            if (count > stopAt)
+                return;
+            if (SkipDirectories.Contains(System.IO.Path.GetFileName(dir)))
+                continue;
+            try
+            {
+                CountDirectoryFiles(dir, extensions, ref count, stopAt);
+            }
+            catch
+            {
+                // 忽略单个子目录访问异常
+            }
+        }
+    }
+
     private static readonly HashSet<string> SkipDirectories = new(StringComparer.OrdinalIgnoreCase)
     {
         ".git", ".svn", ".hg", "node_modules", "bin", "obj", ".vs", ".idea",

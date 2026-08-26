@@ -29,8 +29,8 @@ public partial class MainWindow : Window
         DataContext = this;
         Topmost = _prefs.WindowTopmost;
 
-        _queue.BusyStateChanged += () => Dispatcher.Invoke(UpdateStatusBar);
-        _queue.QueueFinished += () => Dispatcher.Invoke(OnQueueFinished);
+        _queue.BusyStateChanged += () => Dispatcher.BeginInvoke(UpdateStatusBar);
+        _queue.QueueFinished += () => Dispatcher.BeginInvoke(OnQueueFinished);
 
         // 状态栏定时刷新
         _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
@@ -53,8 +53,26 @@ public partial class MainWindow : Window
         if (e.Data.GetDataPresent(DataFormats.FileDrop))
         {
             var paths = (string[])e.Data.GetData(DataFormats.FileDrop);
-            _files.AddPaths(paths);
+            if (ConfirmAddPaths(paths))
+                _files.AddPaths(paths);
         }
+    }
+
+    private bool ConfirmAddPaths(string[] paths)
+    {
+        int threshold = _prefs.AddFilesThreshold;
+        int count = _queue.CountFiles(paths, threshold);
+        if (count > threshold)
+        {
+            var result = MessageBox.Show(
+                this,
+                $"本次将添加 {count} 个文件，已超过提醒阈值（{threshold}）。是否继续？",
+                "确认添加文件",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            return result == MessageBoxResult.Yes;
+        }
+        return true;
     }
 
     private void BrowseFiles_Click(object sender, RoutedEventArgs e)
@@ -67,7 +85,8 @@ public partial class MainWindow : Window
         };
         if (dialog.ShowDialog() == true)
         {
-            _files.AddPaths(dialog.FileNames);
+            if (ConfirmAddPaths(dialog.FileNames))
+                _files.AddPaths(dialog.FileNames);
         }
     }
 
