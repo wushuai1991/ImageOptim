@@ -48,16 +48,22 @@ public sealed class ResultsCache
         }
     }
 
-    /// <summary>计算输入文件哈希（与设置哈希组合，原版用 MD5）。</summary>
+    /// <summary>计算输入文件哈希（与设置哈希组合，原版用 MD5）。流式读取，避免大文件整体载入内存。</summary>
     public static string ComputeHash(byte[] settingsHash, string filePath)
     {
         using var md5 = MD5.Create();
-        var fileBytes = File.ReadAllBytes(filePath);
-        var buffer = new byte[settingsHash.Length + fileBytes.Length];
-        Buffer.BlockCopy(settingsHash, 0, buffer, 0, settingsHash.Length);
-        Buffer.BlockCopy(fileBytes, 0, buffer, settingsHash.Length, fileBytes.Length);
-        var hash = md5.ComputeHash(buffer);
-        return Convert.ToHexString(hash);
+        md5.TransformBlock(settingsHash, 0, settingsHash.Length, null, 0);
+
+        using (var fs = File.OpenRead(filePath))
+        {
+            var buffer = new byte[81920];
+            int read;
+            while ((read = fs.Read(buffer, 0, buffer.Length)) > 0)
+                md5.TransformBlock(buffer, 0, read, null, 0);
+        }
+
+        md5.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+        return Convert.ToHexString(md5.Hash!);
     }
 
     public bool HasResult(string hash)

@@ -46,25 +46,46 @@ public sealed class FilesController
                 filePaths.Add(p);
         }
 
-        // 先处理文件
+        // 先处理文件：批量构建后一次性加入列表，避免逐个 Items.Add 反复刷新 DataGrid 导致 UI 卡死
+        var newItems = new List<JobItem>();
         foreach (var path in filePaths)
-            AddSingleFile(path);
+        {
+            var item = TryCreateItem(path);
+            if (item != null)
+                newItems.Add(item);
+        }
+        if (newItems.Count > 0)
+        {
+            foreach (var item in newItems)
+                Items.Add(item);
+            UpdateStoppableState();
+        }
 
-        // 再处理目录（异步扫描）
+        // 再处理目录（异步扫描，分批回调）
         foreach (var dir in dirPaths)
         {
             _queue.AddDirectory(dir, foundFiles =>
             {
                 Application.Current.Dispatcher.Invoke(() =>
                 {
+                    var batch = new List<JobItem>();
                     foreach (var f in foundFiles)
-                        AddSingleFile(f);
+                    {
+                        var item = TryCreateItem(f);
+                        if (item != null)
+                            batch.Add(item);
+                    }
+                    foreach (var item in batch)
+                        Items.Add(item);
+                    if (batch.Count > 0)
+                        UpdateStoppableState();
                 });
             });
         }
     }
 
-    private void AddSingleFile(string path)
+    /// <summary>创建（或复用）单个文件的 JobItem；去重时返回 null。</summary>
+    private JobItem? TryCreateItem(string path)
     {
         var full = System.IO.Path.GetFullPath(path);
         if (!_seenPaths.Add(full))
@@ -72,14 +93,13 @@ public sealed class FilesController
             // 已存在且不忙，重新入队
             if (_jobByPath.TryGetValue(full, out var existing) && !existing.IsBusy)
                 _queue.Requeue(existing.Job);
-            return;
+            return null;
         }
 
         var job = _queue.AddFile(full);
         var item = new JobItem(job);
         _jobByPath[full] = item;
-        Items.Add(item);
-        UpdateStoppableState();
+        return item;
     }
 
     public void StopSelected(IEnumerable<JobItem> selected)

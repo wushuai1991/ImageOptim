@@ -28,8 +28,8 @@ public partial class MainWindow : Window
 
         DataContext = this;
 
-        _queue.BusyStateChanged += UpdateStatusBar;
-        _queue.QueueFinished += OnQueueFinished;
+        _queue.BusyStateChanged += () => Dispatcher.Invoke(UpdateStatusBar);
+        _queue.QueueFinished += () => Dispatcher.Invoke(OnQueueFinished);
 
         // 状态栏定时刷新
         _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
@@ -111,14 +111,11 @@ public partial class MainWindow : Window
 
     private void OnQueueFinished()
     {
-        Dispatcher.Invoke(() =>
+        if (_prefs.BounceDock)
         {
-            if (_prefs.BounceDock)
-            {
-                // 在 Windows 下通过任务栏闪烁提示
-                Activate();
-            }
-        });
+            // 在 Windows 下通过任务栏闪烁提示
+            Activate();
+        }
     }
 
     protected override void OnClosed(EventArgs e)

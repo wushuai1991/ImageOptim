@@ -21,23 +21,11 @@ public sealed class JobItem : INotifyPropertyChanged
         job.StateChanged += () =>
         {
             _snapshot = job.Snapshot;
-            // 状态变化来自后台线程，需切回 UI 线程通知
+            // 状态变化来自后台线程，需切回 UI 线程通知。
+            // 合并为一次通知所有属性，避免逐项 OnPropertyChanged 引发 DataGrid 反复刷新。
             System.Windows.Application.Current?.Dispatcher.Invoke(() =>
             {
-                OnPropertyChanged(nameof(DisplayName));
-                OnPropertyChanged(nameof(FileName));
-                OnPropertyChanged(nameof(StatusText));
-                OnPropertyChanged(nameof(BestToolName));
-                OnPropertyChanged(nameof(StatusImage));
-                OnPropertyChanged(nameof(ByteSizeOriginalText));
-                OnPropertyChanged(nameof(ByteSizeOptimizedText));
-                OnPropertyChanged(nameof(PercentOptimizedText));
-                OnPropertyChanged(nameof(PercentOptimized));
-                OnPropertyChanged(nameof(IsDone));
-                OnPropertyChanged(nameof(IsBusy));
-                OnPropertyChanged(nameof(IsFailed));
-                OnPropertyChanged(nameof(CanRevert));
-                OnPropertyChanged(nameof(IsOptimized));
+                OnPropertyChanged(string.Empty);
             });
         };
     }

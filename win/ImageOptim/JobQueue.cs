@@ -78,24 +78,50 @@ public sealed class JobQueue
         });
     }
 
+    private static readonly HashSet<string> SkipDirectories = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".git", ".svn", ".hg", "node_modules", "bin", "obj", ".vs", ".idea",
+        "Tools", "build", "dist"
+    };
+
     private List<string> ScanDirectory(string path)
     {
         var extensions = _prefs.EnabledExtensions();
         var result = new List<string>();
         try
         {
-            foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
-            {
-                var ext = System.IO.Path.GetExtension(file).TrimStart('.');
-                if (extensions.Contains(ext))
-                    result.Add(file);
-            }
+            ScanDirectoryRecursive(path, extensions, result);
         }
         catch
         {
             // 忽略扫描异常
         }
         return result;
+    }
+
+    private static void ScanDirectoryRecursive(string path, HashSet<string> extensions, List<string> result)
+    {
+        foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.TopDirectoryOnly))
+        {
+            var ext = System.IO.Path.GetExtension(file).TrimStart('.');
+            if (extensions.Contains(ext))
+                result.Add(file);
+        }
+
+        foreach (var dir in Directory.EnumerateDirectories(path, "*", SearchOption.TopDirectoryOnly))
+        {
+            var name = System.IO.Path.GetFileName(dir);
+            if (SkipDirectories.Contains(name))
+                continue;
+            try
+            {
+                ScanDirectoryRecursive(dir, extensions, result);
+            }
+            catch
+            {
+                // 忽略单个子目录访问异常
+            }
+        }
     }
 
     private void OnJobStateChanged()
@@ -105,28 +131,32 @@ public sealed class JobQueue
 
     private void BeginActive()
     {
+        bool shouldNotify;
         lock (_lock)
         {
             _activeCount++;
-            if (!_isBusy)
-            {
+            shouldNotify = !_isBusy;
+            if (shouldNotify)
                 _isBusy = true;
-                BusyStateChanged?.Invoke();
-            }
         }
+        if (shouldNotify)
+            BusyStateChanged?.Invoke();
     }
 
     private void EndActive()
     {
+        bool shouldNotify;
         lock (_lock)
         {
             _activeCount--;
-            if (_activeCount <= 0)
-            {
+            shouldNotify = _activeCount <= 0;
+            if (shouldNotify)
                 _isBusy = false;
-                BusyStateChanged?.Invoke();
-                QueueFinished?.Invoke();
-            }
+        }
+        if (shouldNotify)
+        {
+            BusyStateChanged?.Invoke();
+            QueueFinished?.Invoke();
         }
     }
 }
