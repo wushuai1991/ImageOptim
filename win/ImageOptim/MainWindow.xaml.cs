@@ -27,6 +27,7 @@ public partial class MainWindow : Window
         _files = new FilesController(_queue, _prefs);
 
         DataContext = this;
+        Topmost = _prefs.WindowTopmost;
 
         _queue.BusyStateChanged += () => Dispatcher.Invoke(UpdateStatusBar);
         _queue.QueueFinished += () => Dispatcher.Invoke(OnQueueFinished);
@@ -100,6 +101,7 @@ public partial class MainWindow : Window
         prefsWindow.Owner = this;
         prefsWindow.ShowDialog();
         _prefs.Save();
+        Topmost = _prefs.WindowTopmost;
         UpdateStatusBar();
     }
 

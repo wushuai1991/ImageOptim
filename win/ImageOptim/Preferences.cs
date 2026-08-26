@@ -39,6 +39,7 @@ public sealed class Preferences
     // 文件保存选项
     public bool PreservePermissions { get; set; } = true;
     public bool PreserveDates { get; set; } = true;
+    public bool RemoveOriginal { get; set; } = true;
 
     // 并发与进程选项
     public int RunConcurrentFiles { get; set; } = Environment.ProcessorCount;
@@ -46,6 +47,9 @@ public sealed class Preferences
     public int RunConcurrentFileops { get; set; } = 2;
     public bool RunLowPriority { get; set; } = false;
     public bool BounceDock { get; set; } = true;
+
+    // 窗口选项
+    public bool WindowTopmost { get; set; } = false;
 
     // 仅用于 Guetzli 联动状态（不持久化也行，但保持一致）
     [JsonIgnore]

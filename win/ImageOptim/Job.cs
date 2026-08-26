@@ -53,6 +53,10 @@ public sealed class Job
     private readonly List<Worker> _workers = new();
     private readonly Dictionary<string, (long fileSize, double ratio)> _bestTools = new();
 
+    // 输出目录缓存：不剔除原文件时，同一源目录下的文件输出到同一文件夹，避免每个文件各自新建
+    private static readonly object _outputDirLock = new();
+    private static readonly Dictionary<string, string> _outputDirCache = new(StringComparer.OrdinalIgnoreCase);
+
     private volatile JobSnapshot _snapshot = null!;
     private readonly ResultsCache _cache;
     private readonly Preferences _prefs;
@@ -422,6 +426,35 @@ public sealed class Job
     }
 
     /// <summary>用临时优化结果替换原文件，并保留回退备份。</summary>
+    /// <summary>
+    /// 获取（或创建）源目录下的输出文件夹，用于「不剔除原文件」模式。
+    /// 同一源目录共享同一个输出文件夹；若同名文件夹已存在则追加 _1、_2 … 数字后缀。
+    /// </summary>
+    private static string GetOutputDirectory(string sourceDir)
+    {
+        lock (_outputDirLock)
+        {
+            if (_outputDirCache.TryGetValue(sourceDir, out var cached))
+                return cached;
+
+            string candidate = System.IO.Path.Combine(sourceDir, "ImageOptim");
+            if (!Directory.Exists(candidate))
+            {
+                Directory.CreateDirectory(candidate);
+                _outputDirCache[sourceDir] = candidate;
+                return candidate;
+            }
+
+            int i = 1;
+            while (Directory.Exists(System.IO.Path.Combine(sourceDir, $"ImageOptim_{i}")))
+                i++;
+            candidate = System.IO.Path.Combine(sourceDir, $"ImageOptim_{i}");
+            Directory.CreateDirectory(candidate);
+            _outputDirCache[sourceDir] = candidate;
+            return candidate;
+        }
+    }
+
     private bool SaveResultLocked()
     {
         var fileToSave = _wipInput;
@@ -432,6 +465,20 @@ public sealed class Job
         {
             var dir = System.IO.Path.GetDirectoryName(FilePath)!;
             var original = _unoptimizedInput!;
+
+            if (!_prefs.RemoveOriginal)
+            {
+                // 不剔除原文件：保存到新文件夹，文件名保持不变，原文件不动（无需备份/回退）
+                var outputDir = GetOutputDirectory(dir);
+                var outputPath = System.IO.Path.Combine(outputDir, System.IO.Path.GetFileName(FilePath));
+                File.Copy(fileToSave.Path, outputPath, overwrite: true);
+
+                _savedOutput = new ImageFile(outputPath, fileToSave.ByteSize, fileToSave.Type);
+                _wipInput = null;
+                return true;
+            }
+
+            // 剔除原文件：覆盖原文件，保持名称不变（需备份以便回退）
 
             // 备份原文件（保留创建/修改时间与属性）
             string backupPath = System.IO.Path.Combine(dir, "~" + System.IO.Path.GetFileNameWithoutExtension(FilePath) + ".imageoptim.bak" + System.IO.Path.GetExtension(FilePath));

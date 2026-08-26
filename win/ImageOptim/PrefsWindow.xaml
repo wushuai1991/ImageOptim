@@ -83,6 +83,8 @@
                 <StackPanel Margin="16">
                     <GroupBox Header="文件保存" Padding="10" Margin="0,0,0,10">
                         <StackPanel>
+                            <CheckBox x:Name="ChkRemoveOriginal" Content="压缩后剔除原文件（用压缩文件替换原文件，保持名称不变）" Margin="0,4"
+                                      IsChecked="{Binding RemoveOriginal}" />
                             <CheckBox x:Name="ChkPreserveDates" Content="保留文件修改时间" Margin="0,4"
                                       IsChecked="{Binding PreserveDates}" />
                             <CheckBox x:Name="ChkPreservePerms" Content="保留文件权限" Margin="0,4"
@@ -98,6 +100,13 @@
                                 <TextBlock Text="并发文件数：" VerticalAlignment="Center" />
                                 <TextBox x:Name="TxtConcurrent" Width="60" Text="{Binding RunConcurrentFiles}" Margin="8,0,0,0" />
                             </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="窗口" Padding="10" Margin="0,0,0,10">
+                        <StackPanel>
+                            <CheckBox x:Name="ChkWindowTopmost" Content="窗口置顶（始终显示在最前面）" Margin="0,4"
+                                      IsChecked="{Binding WindowTopmost}" />
                         </StackPanel>
                     </GroupBox>
                 </StackPanel>
