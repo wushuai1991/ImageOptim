@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace ImageOptim;
 
 /// <summary>pngcrush：PNG 无损优化工具。</summary>

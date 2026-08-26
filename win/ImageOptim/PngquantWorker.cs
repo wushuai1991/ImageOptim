@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace ImageOptim;
 
 /// <summary>pngquant：有损 PNG 量化工具。</summary>

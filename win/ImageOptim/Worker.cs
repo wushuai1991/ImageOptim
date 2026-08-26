@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 
 namespace ImageOptim;
 
@@ -64,7 +65,7 @@ public abstract class Worker
     }
 
     /// <summary>生成唯一的临时文件路径。</summary>
-    protected string NewTempPath()
+    public string NewTempPath()
     {
         return System.IO.Path.Combine(
             System.IO.Path.GetTempPath(),

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Security.Cryptography;
 
 namespace ImageOptim;
@@ -52,7 +53,7 @@ public sealed class Job
     private readonly List<Worker> _workers = new();
     private readonly Dictionary<string, (long fileSize, double ratio)> _bestTools = new();
 
-    private volatile JobSnapshot _snapshot;
+    private volatile JobSnapshot _snapshot = null!;
     private readonly ResultsCache _cache;
     private readonly Preferences _prefs;
     private bool _lossyConverted;
@@ -132,7 +133,7 @@ public sealed class Job
     private bool IsOptimizedLocked()
     {
         var optimizedFile = _wipInput ?? _savedOutput;
-        if (optimizedFile == null || _unoptimizedInput == optimizedFile)
+        if (optimizedFile == null || _unoptimizedInput == null || _unoptimizedInput == optimizedFile)
             return false;
         return optimizedFile.ByteSize < _unoptimizedInput.ByteSize;
     }
@@ -216,7 +217,6 @@ public sealed class Job
             }
 
             // 依次运行各工具，每个产出结果立即比较采纳
-            bool anySucceeded = false;
             foreach (var w in workers)
             {
                 if (IsStopping()) break;
@@ -227,9 +227,7 @@ public sealed class Job
                 string tempPath = w.NewTempPath();
                 try
                 {
-                    bool ok = w.OptimizeFile(input, tempPath);
-                    if (ok)
-                        anySucceeded = true;
+                    w.OptimizeFile(input, tempPath);
                 }
                 catch (Exception ex)
                 {

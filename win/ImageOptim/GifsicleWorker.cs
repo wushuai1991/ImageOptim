@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace ImageOptim;
 
 /// <summary>Gifsicle：GIF 优化工具。</summary>

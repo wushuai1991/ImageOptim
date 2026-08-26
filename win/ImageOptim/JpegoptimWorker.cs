@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace ImageOptim;
 
 /// <summary>jpegoptim：JPEG 优化工具。</summary>
