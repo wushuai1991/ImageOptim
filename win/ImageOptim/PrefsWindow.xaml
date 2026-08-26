@@ -1,0 +1,112 @@
+<Window x:Class="ImageOptim.PrefsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="偏好设置" Height="520" Width="560"
+        Background="#F5F5F7"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        FontFamily="Segoe UI">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TabControl Grid.Row="0">
+            <!-- 常规设置 -->
+            <TabItem Header="工具">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="16">
+                        <GroupBox Header="PNG 优化工具" Padding="10" Margin="0,0,0,10">
+                            <StackPanel>
+                                <CheckBox x:Name="ChkOptiPng" Content="OxiPNG" Margin="0,4" IsChecked="{Binding OptiPngEnabled}" />
+                                <CheckBox x:Name="ChkPngCrush" Content="Pngcrush" Margin="0,4" IsChecked="{Binding PngCrush2Enabled}" />
+                                <CheckBox x:Name="ChkPngOut" Content="PNGOUT" Margin="0,4" IsChecked="{Binding PngOutEnabled}" />
+                                <CheckBox x:Name="ChkAdvPng" Content="AdvPNG" Margin="0,4" IsChecked="{Binding AdvPngEnabled}" />
+                                <CheckBox x:Name="ChkZopfli" Content="Zopfli" Margin="0,4" IsChecked="{Binding ZopfliEnabled}" />
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="JPEG 优化工具" Padding="10" Margin="0,0,0,10">
+                            <StackPanel>
+                                <CheckBox x:Name="ChkJpegOptim" Content="JpegOptim" Margin="0,4" IsChecked="{Binding JpegOptimEnabled}" />
+                                <CheckBox x:Name="ChkJpegTran" Content="MozJPEG (jpegtran)" Margin="0,4" IsChecked="{Binding JpegTranEnabled}" />
+                                <CheckBox x:Name="ChkGuetzli" Content="Guetzli（极慢）" Margin="0,4" IsChecked="{Binding GuetzliEnabled}" />
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="GIF 与 SVG 优化工具" Padding="10" Margin="0,0,0,10">
+                            <StackPanel>
+                                <CheckBox x:Name="ChkGifsicle" Content="Gifsicle" Margin="0,4" IsChecked="{Binding GifsicleEnabled}" />
+                                <CheckBox x:Name="ChkSvgo" Content="SVGO" Margin="0,4" IsChecked="{Binding SvgoEnabled}" />
+                                <CheckBox x:Name="ChkSvgcleaner" Content="Svgcleaner" Margin="0,4" IsChecked="{Binding SvgcleanerEnabled}" />
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- 有损压缩 -->
+            <TabItem Header="有损压缩">
+                <StackPanel Margin="16">
+                    <CheckBox x:Name="ChkLossy" Content="启用有损压缩" FontWeight="Bold" Margin="0,8"
+                              IsChecked="{Binding LossyEnabled}" />
+
+                    <GroupBox Header="JPEG 质量" Padding="10" Margin="0,12,0,8">
+                        <StackPanel>
+                            <Slider x:Name="SldJpeg" Minimum="30" Maximum="100" Value="{Binding JpegOptimMaxQuality}"
+                                    TickFrequency="5" IsSnapToTickEnabled="True" />
+                            <TextBlock Text="{Binding JpegOptimMaxQuality, StringFormat=质量：{0}%}" Margin="0,4" />
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="PNG 质量" Padding="10" Margin="0,0,0,8">
+                        <StackPanel>
+                            <Slider x:Name="SldPng" Minimum="30" Maximum="100" Value="{Binding PngMinQuality}"
+                                    TickFrequency="5" IsSnapToTickEnabled="True" />
+                            <TextBlock Text="{Binding PngMinQuality, StringFormat=质量：{0}%}" Margin="0,4" />
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="GIF 质量" Padding="10" Margin="0,0,0,8">
+                        <StackPanel>
+                            <Slider x:Name="SldGif" Minimum="30" Maximum="100" Value="{Binding GifQuality}"
+                                    TickFrequency="5" IsSnapToTickEnabled="True" />
+                            <TextBlock Text="{Binding GifQuality, StringFormat=质量：{0}%}" Margin="0,4" />
+                        </StackPanel>
+                    </GroupBox>
+                </StackPanel>
+            </TabItem>
+
+            <!-- 高级选项 -->
+            <TabItem Header="高级">
+                <StackPanel Margin="16">
+                    <GroupBox Header="文件保存" Padding="10" Margin="0,0,0,10">
+                        <StackPanel>
+                            <CheckBox x:Name="ChkPreserveDates" Content="保留文件修改时间" Margin="0,4"
+                                      IsChecked="{Binding PreserveDates}" />
+                            <CheckBox x:Name="ChkPreservePerms" Content="保留文件权限" Margin="0,4"
+                                      IsChecked="{Binding PreservePermissions}" />
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="性能" Padding="10" Margin="0,0,0,10">
+                        <StackPanel>
+                            <CheckBox x:Name="ChkLowPriority" Content="低优先级运行（后台模式）" Margin="0,4"
+                                      IsChecked="{Binding RunLowPriority}" />
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <TextBlock Text="并发文件数：" VerticalAlignment="Center" />
+                                <TextBox x:Name="TxtConcurrent" Width="60" Text="{Binding RunConcurrentFiles}" Margin="8,0,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="确定" Click="Ok_Click" Padding="20,6" Width="90" />
+            <Button Content="取消" Click="Cancel_Click" Padding="20,6" Width="90" Margin="8,0,0,0" />
+        </StackPanel>
+    </Grid>
+</Window>

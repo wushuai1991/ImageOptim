@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>ImageOptim</AssemblyName>
+    <RootNamespace>ImageOptim</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>1.0.0</Version>
+    <Authors>ImageOptim Contributors</Authors>
+    <Product>ImageOptim</Product>
+    <Description>Windows 版图片无损压缩工具，仿照 ImageOptim 界面与功能实现</Description>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- 工具二进制：构建时若已下载则拷贝到输出目录，并与可执行文件同目录 -->
+  <ItemGroup>
+    <None Include="Tools\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('Tools')" />
+  </ItemGroup>
+
+  <!-- 构建时自动下载 Windows 版工具二进制（可选，通过 -p:DownloadTools=true 或默认开启） -->
+  <Target Name="DownloadOptimizerTools" BeforeTargets="BeforeBuild" Condition="'$(DownloadTools)' != 'false'">
+    <Message Importance="high" Text="正在准备图片优化工具二进制文件..." />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\tools\download-tools.ps1&quot; -Destination &quot;$(MSBuildProjectDirectory)\Tools&quot;" ContinueOnError="true" />
+  </Target>
+
+</Project>

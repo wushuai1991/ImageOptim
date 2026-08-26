@@ -162,3 +162,13 @@ svgo/build/
 svgo/node_modules/
 pngcrush/tmp/
 pngcrush/LICENSE
+
+# Windows 版（.NET/WPF）
+win/ImageOptim/bin/
+win/ImageOptim/obj/
+win/ImageOptim/Tools/
+*.user
+*.suo
+
+# JetBrains IDE
+.idea/
