@@ -12,6 +12,7 @@ public sealed class JobItem : INotifyPropertyChanged
 {
     private readonly Job _job;
     private JobSnapshot _snapshot;
+    private readonly Action _stateChangedHandler;
 
     public Job Job => _job;
 
@@ -19,7 +20,8 @@ public sealed class JobItem : INotifyPropertyChanged
     {
         _job = job;
         _snapshot = job.Snapshot;
-        job.StateChanged += () =>
+        // 记录处理器引用，便于清理时解绑，避免长期驻留导致内存泄漏与无谓 UI 通知
+        _stateChangedHandler = () =>
         {
             _snapshot = job.Snapshot;
             // 状态变化来自后台线程，需切回 UI 线程通知。
@@ -30,6 +32,13 @@ public sealed class JobItem : INotifyPropertyChanged
                 OnPropertyChanged(string.Empty);
             });
         };
+        job.StateChanged += _stateChangedHandler;
+    }
+
+    /// <summary>解绑事件订阅（在 JobItem 从列表移除时调用）。</summary>
+    public void Detach()
+    {
+        _job.StateChanged -= _stateChangedHandler;
     }
 
     public string FilePath => _snapshot.FilePath;

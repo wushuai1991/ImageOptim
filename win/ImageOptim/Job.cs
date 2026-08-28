@@ -220,7 +220,11 @@ public sealed class Job
                 _workers.AddRange(workers);
             }
 
-            // 依次运行各工具，每个产出结果立即比较采纳
+            // 依次运行各工具，每个产出结果立即比较采纳。
+            // 注意：不能无脑删除 tempPath——如果这次产出被 SetFileOptimized 采纳，
+            // _wipInput.Path 就指向 tempPath，删了会导致后续 SaveResultLocked 读不到文件。
+            // 采纳链路里，前一个被采纳的临时文件会被 SetFileOptimized 自动清理；
+            // 未被采纳的临时文件由此处 finally 兜底删除。
             foreach (var w in workers)
             {
                 if (IsStopping()) break;
@@ -239,7 +243,15 @@ public sealed class Job
                 }
                 finally
                 {
-                    TryDelete(tempPath);
+                    // 仅当此次临时文件未被采纳（即不是当前最优结果）时才删除
+                    bool adopted;
+                    lock (_lock)
+                    {
+                        adopted = _wipInput != null &&
+                                  string.Equals(_wipInput.Path, tempPath, StringComparison.OrdinalIgnoreCase);
+                    }
+                    if (!adopted)
+                        TryDelete(tempPath);
                 }
             }
 
@@ -350,6 +362,7 @@ public sealed class Job
         if (newSize == 0)
             return false;
 
+        string? prevTempToDelete = null;
         lock (_lock)
         {
             var oldFile = _wipInput;
@@ -363,12 +376,23 @@ public sealed class Job
             if (!isSmaller)
                 return false;
 
+            // 若上一个 _wipInput 也是临时文件（非原始输入），需在采纳后删除，避免临时文件堆积
+            if (_initialInput != null &&
+                !string.Equals(oldFile.Path, _initialInput.Path, StringComparison.OrdinalIgnoreCase))
+            {
+                prevTempToDelete = oldFile.Path;
+            }
+
             var newFile = new ImageFile(tempPath, newSize, oldFile.Type);
             _wipInput = newFile;
 
             _bestTools[toolName] = (newSize, (double)oldSize / newSize);
             UpdateBestToolName();
         }
+
+        if (prevTempToDelete != null)
+            TryDelete(prevTempToDelete);
+
         Publish();
         return true;
     }
@@ -398,29 +422,52 @@ public sealed class Job
 
     private void SaveResultAndUpdateStatus(byte[] settingsHash, ImageFile input)
     {
+        // 保存和缓存写入涉及磁盘 IO，不应持锁执行；分为「锁内判断+置位」与「锁外 IO」两阶段。
+        bool needSave;
+        string? tempToCleanup = null;
         lock (_lock)
         {
-            if (IsOptimizedLocked())
+            needSave = IsOptimizedLocked();
+            if (!needSave)
             {
-                bool saved = SaveResultLocked();
-                _isDone = true;
-                _workers.Clear();
-                if (saved)
-                    SetStatus("ok", 7, $"已用 {_bestToolName} 成功优化");
-                else
-                    SetError("优化后的文件无法保存");
-            }
-            else
-            {
-                _wipInput = null;
-                SetStatus("noopt", 5, "文件无法进一步优化");
-                _isDone = true;
-                _workers.Clear();
-                if (!_stopping && !_isFailed)
+                // 未产生更小结果：如果 _wipInput 是临时文件，需清理
+                if (_wipInput != null && _initialInput != null &&
+                    !string.Equals(_wipInput.Path, _initialInput.Path, StringComparison.OrdinalIgnoreCase))
                 {
-                    var fileHash = ResultsCache.ComputeHash(settingsHash, FilePath);
-                    _cache.MarkUnoptimizable(fileHash);
+                    tempToCleanup = _wipInput.Path;
                 }
+                _wipInput = null;
+                _isDone = true;
+                _workers.Clear();
+            }
+        }
+
+        if (needSave)
+        {
+            bool saved = SaveResultLocked();
+            lock (_lock)
+            {
+                _isDone = true;
+                _workers.Clear();
+            }
+            if (saved)
+                SetStatus("ok", 7, $"已用 {_bestToolName} 成功优化");
+            else
+                SetError("优化后的文件无法保存");
+        }
+        else
+        {
+            if (tempToCleanup != null)
+                TryDelete(tempToCleanup);
+
+            SetStatus("noopt", 5, "文件无法进一步优化");
+
+            bool shouldCache;
+            lock (_lock) { shouldCache = !_stopping && !_isFailed; }
+            if (shouldCache)
+            {
+                var fileHash = ResultsCache.ComputeHash(settingsHash, FilePath);
+                _cache.MarkUnoptimizable(fileHash);
             }
         }
     }
@@ -457,58 +504,83 @@ public sealed class Job
 
     private bool SaveResultLocked()
     {
-        var fileToSave = _wipInput;
-        if (fileToSave == null)
+        ImageFile? fileToSave;
+        ImageFile? original;
+        bool removeOriginal;
+        bool preserveDates;
+        lock (_lock)
+        {
+            fileToSave = _wipInput;
+            original = _unoptimizedInput;
+        }
+        removeOriginal = _prefs.RemoveOriginal;
+        preserveDates = _prefs.PreserveDates;
+
+        if (fileToSave == null || original == null)
             return false;
 
+        string tempToCleanup = fileToSave.Path;
         try
         {
             var dir = System.IO.Path.GetDirectoryName(FilePath)!;
-            var original = _unoptimizedInput!;
 
-            if (!_prefs.RemoveOriginal)
+            if (!removeOriginal)
             {
                 // 不剔除原文件：保存到新文件夹，文件名保持不变，原文件不动（无需备份/回退）
                 var outputDir = GetOutputDirectory(dir);
                 var outputPath = System.IO.Path.Combine(outputDir, System.IO.Path.GetFileName(FilePath));
                 File.Copy(fileToSave.Path, outputPath, overwrite: true);
 
-                _savedOutput = new ImageFile(outputPath, fileToSave.ByteSize, fileToSave.Type);
-                _wipInput = null;
+                lock (_lock)
+                {
+                    _savedOutput = new ImageFile(outputPath, fileToSave.ByteSize, fileToSave.Type);
+                    _wipInput = null;
+                }
                 return true;
             }
 
             // 剔除原文件：覆盖原文件，保持名称不变（需备份以便回退）
 
-            // 备份原文件（保留创建/修改时间与属性）
-            string backupPath = System.IO.Path.Combine(dir, "~" + System.IO.Path.GetFileNameWithoutExtension(FilePath) + ".imageoptim.bak" + System.IO.Path.GetExtension(FilePath));
-            if (File.Exists(backupPath))
-                File.Delete(backupPath);
-
-            File.Copy(FilePath, backupPath, overwrite: true);
-            if (!_revertFileObjExists())
-                _revertFile = new ImageFile(backupPath, original.ByteSize, original.Type);
+            // 备份原文件到不与用户已有 .bak 冲突的路径
+            string backupPath = ResolveUniqueBackupPath(dir, FilePath);
+            File.Copy(FilePath, backupPath, overwrite: false);
+            lock (_lock)
+            {
+                if (_revertFile == null)
+                    _revertFile = new ImageFile(backupPath, original.ByteSize, original.Type);
+            }
 
             // 保留原文件时间
             var creation = File.GetCreationTime(FilePath);
             var modified = File.GetLastWriteTime(FilePath);
 
+            // 若目标是只读，先清除只读属性以允许覆盖
+            try
+            {
+                var attrs = File.GetAttributes(FilePath);
+                if ((attrs & FileAttributes.ReadOnly) == FileAttributes.ReadOnly)
+                    File.SetAttributes(FilePath, attrs & ~FileAttributes.ReadOnly);
+            }
+            catch { }
+
             // 用优化结果覆盖原文件
             File.Copy(fileToSave.Path, FilePath, overwrite: true);
 
-            if (_prefs.PreserveDates)
+            if (preserveDates)
             {
-                File.SetCreationTime(FilePath, creation);
-                File.SetLastWriteTime(FilePath, modified);
+                try
+                {
+                    File.SetCreationTime(FilePath, creation);
+                    File.SetLastWriteTime(FilePath, modified);
+                }
+                catch { /* 忽略时间戳设置失败 */ }
             }
 
-            if (!_prefs.PreservePermissions)
+            lock (_lock)
             {
-                // 默认新文件已继承，无需处理；保留则维持原属性
+                _savedOutput = new ImageFile(FilePath, fileToSave.ByteSize, fileToSave.Type);
+                _wipInput = null;
             }
-
-            _savedOutput = new ImageFile(FilePath, fileToSave.ByteSize, fileToSave.Type);
-            _wipInput = null;
             return true;
         }
         catch (Exception ex)
@@ -516,6 +588,32 @@ public sealed class Job
             Debug.WriteLine($"保存失败: {ex.Message}");
             return false;
         }
+        finally
+        {
+            // 保存链路结束后，若临时文件仍存在（说明它不是原始输入），清理掉
+            if (original != null &&
+                !string.Equals(tempToCleanup, original.Path, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(tempToCleanup, FilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                TryDelete(tempToCleanup);
+            }
+        }
+    }
+
+    /// <summary>为备份文件寻找不冲突的路径，避免误删用户已有的同名 .bak。</summary>
+    private static string ResolveUniqueBackupPath(string dir, string filePath)
+    {
+        string baseName = System.IO.Path.GetFileNameWithoutExtension(filePath);
+        string ext = System.IO.Path.GetExtension(filePath);
+        string candidate = System.IO.Path.Combine(dir, "~" + baseName + ".imageoptim.bak" + ext);
+        int i = 1;
+        while (File.Exists(candidate))
+        {
+            candidate = System.IO.Path.Combine(dir, "~" + baseName + ".imageoptim.bak." + i + ext);
+            i++;
+            if (i > 1000) break; // 安全保护
+        }
+        return candidate;
     }
 
     private bool _revertFileObjExists() => _revertFile != null;
@@ -525,21 +623,40 @@ public sealed class Job
     /// <summary>回退到优化前的原始文件。</summary>
     public bool Revert()
     {
+        ImageFile? revertFile;
         lock (_lock)
         {
             if (!CanRevertLocked())
                 return false;
+            revertFile = _revertFile;
+        }
+        if (revertFile == null)
+            return false;
 
-            var revertFile = _revertFile!;
+        try
+        {
+            // 若目标是只读，先清除只读属性
             try
             {
-                File.Copy(revertFile.Path, FilePath, overwrite: true);
-                if (_prefs.PreserveDates)
+                var attrs = File.GetAttributes(FilePath);
+                if ((attrs & FileAttributes.ReadOnly) == FileAttributes.ReadOnly)
+                    File.SetAttributes(FilePath, attrs & ~FileAttributes.ReadOnly);
+            }
+            catch { }
+
+            File.Copy(revertFile.Path, FilePath, overwrite: true);
+            if (_prefs.PreserveDates)
+            {
+                try
                 {
                     File.SetCreationTime(FilePath, File.GetCreationTime(revertFile.Path));
                     File.SetLastWriteTime(FilePath, File.GetLastWriteTime(revertFile.Path));
                 }
+                catch { /* 忽略时间戳设置失败 */ }
+            }
 
+            lock (_lock)
+            {
                 _initialInput = new ImageFile(FilePath, revertFile.ByteSize, revertFile.Type);
                 _unoptimizedInput = _initialInput;
                 _wipInput = _initialInput;
@@ -547,14 +664,15 @@ public sealed class Job
                 _revertFile = null;
                 _bestToolName = null;
                 _bestTools.Clear();
-                SetStatus("noopt", 6, "已还原到原始文件");
-                Publish();
-                return true;
+                _isFailed = false; // 回退后清除失败状态，允许后续再次优化
             }
-            catch
-            {
-                return false;
-            }
+            SetStatus("noopt", 6, "已还原到原始文件");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"回退失败: {ex.Message}");
+            return false;
         }
     }
 
@@ -577,11 +695,19 @@ public sealed class Job
 
     public void Cleanup()
     {
+        string? tempToCleanup = null;
         lock (_lock)
         {
             _workers.Clear();
+            if (_wipInput != null && _initialInput != null &&
+                !string.Equals(_wipInput.Path, _initialInput.Path, StringComparison.OrdinalIgnoreCase))
+            {
+                tempToCleanup = _wipInput.Path;
+            }
             _wipInput = null;
         }
+        if (tempToCleanup != null)
+            TryDelete(tempToCleanup);
     }
 
     public void SetStatus(string image, int order, string text)

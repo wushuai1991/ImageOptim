@@ -72,21 +72,51 @@ public sealed class ResultsCache
             return _unoptimizable.Contains(hash);
     }
 
+    /// <summary>标记一个哈希为"无法进一步优化"。异步节流写盘，避免同步 IO 阻塞调用方。</summary>
     public void MarkUnoptimizable(string hash)
     {
+        bool added;
         lock (_lock)
         {
-            if (_unoptimizable.Add(hash))
-                SaveLocked();
+            added = _unoptimizable.Add(hash);
         }
+        if (added)
+            ScheduleSave();
     }
 
-    private void SaveLocked()
+    // 节流：不管入队多少次，1 秒内只写盘一次
+    private readonly object _saveLock = new();
+    private bool _savePending;
+
+    private void ScheduleSave()
     {
+        lock (_saveLock)
+        {
+            if (_savePending) return;
+            _savePending = true;
+        }
+        Task.Run(async () =>
+        {
+            await Task.Delay(1000);
+            lock (_saveLock) { _savePending = false; }
+            SaveSnapshot();
+        });
+    }
+
+    /// <summary>立即将缓存快照写入磁盘（用于程序退出前刷盘）。</summary>
+    public void Flush() => SaveSnapshot();
+
+    private void SaveSnapshot()
+    {
+        List<string> snapshot;
+        lock (_lock)
+        {
+            snapshot = _unoptimizable.ToList();
+        }
         try
         {
             Directory.CreateDirectory(CacheDir);
-            var json = JsonSerializer.Serialize(_unoptimizable.ToList());
+            var json = JsonSerializer.Serialize(snapshot);
             File.WriteAllText(CachePath, json);
         }
         catch

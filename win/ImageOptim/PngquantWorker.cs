@@ -31,8 +31,7 @@ public sealed class PngquantWorker : Worker
             "-f", "--output", tempPath, "--", file.Path,
         };
 
-        var data = File.ReadAllBytes(file.Path);
-        // pngquant 需要 stdin 输入时用 "-"，但这里用 --output 直接输出到文件
+        // pngquant 直接使用 --output 参数输出到文件，无需通过 stdin
         int code = RunProcess(exe, args);
         if (code != 0 && code != 98 && code != 99)
             return false;

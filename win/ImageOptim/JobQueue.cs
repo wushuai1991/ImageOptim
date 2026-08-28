@@ -128,10 +128,11 @@ public sealed class JobQueue
         }
     }
 
+    // 仅跳过版本控制与依赖目录（几乎不可能包含用户要优化的图片，且文件量可能极大）。
+    // 不再跳过 build/dist/bin/obj/Tools 等目录，保证「文件夹中所有图片」语义。
     private static readonly HashSet<string> SkipDirectories = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".git", ".svn", ".hg", "node_modules", "bin", "obj", ".vs", ".idea",
-        "Tools", "build", "dist"
+        ".git", ".svn", ".hg", "node_modules"
     };
 
     private List<string> ScanDirectory(string path)

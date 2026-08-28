@@ -33,21 +33,36 @@ public sealed class FilesController
         _queue.QueueFinished += () => Application.Current.Dispatcher.BeginInvoke(UpdateStoppableState);
     }
 
-    /// <summary>添加一批路径（文件或目录）。</summary>
+    /// <summary>添加一批路径（文件或目录）。分类在后台线程完成，避免 UI 线程做文件系统 IO。</summary>
     public void AddPaths(IEnumerable<string> paths)
     {
-        var filePaths = new List<string>();
-        var dirPaths = new List<string>();
-
-        foreach (var p in paths)
+        var pathList = paths.ToList();
+        Task.Run(() =>
         {
-            if (Directory.Exists(p))
-                dirPaths.Add(p);
-            else if (File.Exists(p))
-                filePaths.Add(p);
-        }
+            var filePaths = new List<string>();
+            var dirPaths = new List<string>();
 
-        // 先处理文件：批量构建后一次性加入列表，避免逐个 Items.Add 反复刷新 DataGrid 导致 UI 卡死
+            foreach (var p in pathList)
+            {
+                if (Directory.Exists(p))
+                    dirPaths.Add(p);
+                else if (File.Exists(p))
+                    filePaths.Add(p);
+            }
+
+            Application.Current.Dispatcher.BeginInvoke(() =>
+            {
+                AddFilePaths(filePaths);
+                foreach (var dir in dirPaths)
+                    AddDirectoryPath(dir);
+            });
+        });
+    }
+
+    /// <summary>批量创建并添加文件条目（UI 线程调用）。</summary>
+    private void AddFilePaths(IReadOnlyList<string> filePaths)
+    {
+        // 批量构建后一次性加入列表，避免逐个 Items.Add 反复刷新 DataGrid 导致 UI 卡死
         var newItems = new List<JobItem>();
         foreach (var path in filePaths)
         {
@@ -61,28 +76,28 @@ public sealed class FilesController
                 Items.Add(item);
             UpdateStoppableState();
         }
+    }
 
-        // 再处理目录（异步扫描，分批回调）
-        foreach (var dir in dirPaths)
+    /// <summary>添加一个目录（异步扫描，分批回调）。</summary>
+    private void AddDirectoryPath(string dir)
+    {
+        _queue.AddDirectory(dir, foundFiles =>
         {
-            _queue.AddDirectory(dir, foundFiles =>
+            Application.Current.Dispatcher.BeginInvoke(() =>
             {
-                Application.Current.Dispatcher.BeginInvoke(() =>
+                var batch = new List<JobItem>();
+                foreach (var f in foundFiles)
                 {
-                    var batch = new List<JobItem>();
-                    foreach (var f in foundFiles)
-                    {
-                        var item = TryCreateItem(f);
-                        if (item != null)
-                            batch.Add(item);
-                    }
-                    foreach (var item in batch)
-                        Items.Add(item);
-                    if (batch.Count > 0)
-                        UpdateStoppableState();
-                });
+                    var item = TryCreateItem(f);
+                    if (item != null)
+                        batch.Add(item);
+                }
+                foreach (var item in batch)
+                    Items.Add(item);
+                if (batch.Count > 0)
+                    UpdateStoppableState();
             });
-        }
+        });
     }
 
     /// <summary>创建（或复用）单个文件的 JobItem；去重时返回 null。</summary>
@@ -136,6 +151,7 @@ public sealed class FilesController
         var toRemove = Items.Where(i => i.IsDone).ToList();
         foreach (var item in toRemove)
         {
+            item.Detach();
             Items.Remove(item);
             _seenPaths.Remove(item.FilePath);
             _jobByPath.Remove(item.FilePath);
@@ -154,6 +170,9 @@ public sealed class FilesController
     public void Cleanup()
     {
         foreach (var item in Items)
+        {
+            item.Detach();
             item.Job.Cleanup();
+        }
     }
 }

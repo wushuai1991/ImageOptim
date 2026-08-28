@@ -73,10 +73,14 @@ public abstract class Worker
     }
 
     /// <summary>
-    /// 运行外部进程，返回退出码；-1 表示启动失败。
+    /// 运行外部进程，返回退出码；-1 表示启动失败或超时。
+    /// 未指定 timeoutMs 时默认使用 5 分钟兜底超时，避免个别工具遇到损坏文件时永久挂起。
     /// </summary>
     protected int RunProcess(string executable, IEnumerable<string> args, int timeoutMs = 0, Action<string>? onOutput = null, string? stdinData = null)
     {
+        // 未指定超时时，使用 5 分钟兜底超时，防止个别工具在损坏文件上无限挂起
+        int effectiveTimeoutMs = timeoutMs > 0 ? timeoutMs : 5 * 60 * 1000;
+
         var psi = new ProcessStartInfo
         {
             FileName = executable,
@@ -107,25 +111,28 @@ public abstract class Worker
 
         if (stdinData != null)
         {
-            process.StandardInput.Write(stdinData);
-            process.StandardInput.Close();
-        }
-
-        if (timeoutMs > 0)
-        {
-            if (!process.WaitForExit(timeoutMs))
+            try
             {
-                try { process.Kill(entireProcessTree: true); } catch { }
-                return -1;
+                process.StandardInput.Write(stdinData);
+                process.StandardInput.Close();
             }
-        }
-        else
-        {
-            process.WaitForExit();
+            catch { /* 若进程已退出，写 stdin 会失败，忽略 */ }
         }
 
-        Task.WaitAll(stdout, stderr);
-        var output = stdout.Result + "\n" + stderr.Result;
+        if (!process.WaitForExit(effectiveTimeoutMs))
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            // 给流读取任务一小段时间收尾，避免永久阻塞
+            try { Task.WaitAll(new Task[] { stdout, stderr }, 2000); } catch { }
+            return -1;
+        }
+
+        // 等待流读取完成（有硬性上限，防止流永远不关闭时永久等待）
+        try { Task.WaitAll(new Task[] { stdout, stderr }, 5000); } catch { }
+
+        string output = "";
+        if (stdout.IsCompletedSuccessfully) output += stdout.Result;
+        if (stderr.IsCompletedSuccessfully) output += "\n" + stderr.Result;
         onOutput?.Invoke(output);
 
         return process.ExitCode;

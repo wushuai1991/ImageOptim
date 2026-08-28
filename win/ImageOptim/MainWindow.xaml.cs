@@ -32,8 +32,8 @@ public partial class MainWindow : Window
         _queue.BusyStateChanged += () => Dispatcher.BeginInvoke(UpdateStatusBar);
         _queue.QueueFinished += () => Dispatcher.BeginInvoke(OnQueueFinished);
 
-        // 状态栏定时刷新
-        _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        // 状态栏定时刷新（500ms 足够平滑，避免 200ms 高频全量重算）
+        _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _statusTimer.Tick += (_, _) => UpdateStatusBar();
         _statusTimer.Start();
 
@@ -48,20 +48,29 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void Window_Drop(object sender, DragEventArgs e)
+    private async void Window_Drop(object sender, DragEventArgs e)
     {
         if (e.Data.GetDataPresent(DataFormats.FileDrop))
         {
             var paths = (string[])e.Data.GetData(DataFormats.FileDrop);
-            if (ConfirmAddPaths(paths))
+            if (await ConfirmAddPathsAsync(paths))
                 _files.AddPaths(paths);
         }
     }
 
-    private bool ConfirmAddPaths(string[] paths)
+    private async Task<bool> ConfirmAddPathsAsync(string[] paths)
     {
         int threshold = _prefs.AddFilesThreshold;
-        int count = _queue.CountFiles(paths, threshold);
+        // 统计在后台线程执行，避免拖入大目录时在 UI 线程递归遍历导致卡顿
+        int count;
+        try
+        {
+            count = await Task.Run(() => _queue.CountFiles(paths, threshold));
+        }
+        catch
+        {
+            count = 0; // 统计失败则不拦截，直接添加
+        }
         if (count > threshold)
         {
             var result = MessageBox.Show(
@@ -75,7 +84,7 @@ public partial class MainWindow : Window
         return true;
     }
 
-    private void BrowseFiles_Click(object sender, RoutedEventArgs e)
+    private async void BrowseFiles_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog
         {
@@ -85,7 +94,7 @@ public partial class MainWindow : Window
         };
         if (dialog.ShowDialog() == true)
         {
-            if (ConfirmAddPaths(dialog.FileNames))
+            if (await ConfirmAddPathsAsync(dialog.FileNames))
                 _files.AddPaths(dialog.FileNames);
         }
     }
@@ -144,6 +153,7 @@ public partial class MainWindow : Window
         _statusTimer.Stop();
         _files.Cleanup();
         _prefs.Save();
+        _cache.Flush();
         base.OnClosed(e);
     }
 }
