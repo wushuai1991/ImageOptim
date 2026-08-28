@@ -68,6 +68,15 @@
                     </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
 
+                <DataGridTextColumn Header="状态" Binding="{Binding StatusText}" Width="150" IsReadOnly="True">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="VerticalAlignment" Value="Center" />
+                            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+
                 <DataGridTextColumn Header="优化后大小" Binding="{Binding ByteSizeOptimizedText}" Width="110" IsReadOnly="True" />
                 <DataGridTextColumn Header="原始大小" Binding="{Binding ByteSizeOriginalText}" Width="110" IsReadOnly="True" />
                 <DataGridTextColumn Header="节省" Binding="{Binding PercentOptimizedText}" Width="90" IsReadOnly="True" />
