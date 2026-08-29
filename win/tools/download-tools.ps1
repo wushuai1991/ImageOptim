@@ -24,7 +24,7 @@ $tools = @(
         Name = "oxipng"
         File = "oxipng.exe"
         Urls = @(
-            "https://github.com/shssoichiro/oxipng/releases/latest/download/oxipng-9.1.4-x86_64-pc-windows-msvc.zip"
+            "https://github.com/oxipng/oxipng/releases/download/v9.1.4/oxipng-9.1.4-x86_64-pc-windows-msvc.zip"
         )
         IsZip = $true
     },
@@ -48,17 +48,9 @@ $tools = @(
         Name = "jpegoptim"
         File = "jpegoptim.exe"
         Urls = @(
-            "https://github.com/imagemin/jpegoptim-bin/raw/main/vendor/win32/x64/jpegoptim.exe"
+            "https://github.com/tjko/jpegoptim/releases/download/v1.5.6/jpegoptim-1.5.6-x64-windows.zip"
         )
-        IsZip = $false
-    },
-    @{
-        Name = "jpegtran"
-        File = "jpegtran.exe"
-        Urls = @(
-            "https://github.com/imagemin/mozjpeg-bin/raw/main/vendor/win32/x64/jpegtran.exe"
-        )
-        IsZip = $false
+        IsZip = $true
     },
     @{
         Name = "gifsicle"
@@ -80,7 +72,7 @@ $tools = @(
         Name = "advpng"
         File = "advpng.exe"
         Urls = @(
-            "https://github.com/amadvance/advancecomp/releases/download/v2.6/advancecomp-2.6-win64.zip"
+            "https://github.com/amadvance/advancecomp/releases/download/v2.6/advancecomp-2.6-windows-x64.zip"
         )
         IsZip = $true
     },
