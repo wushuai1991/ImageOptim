@@ -314,13 +314,7 @@ public sealed class Job
                 break;
 
             case FileType.Jpeg:
-                if (!_lossyConverted && _prefs.GuetzliEnabled && _prefs.JpegOptimMaxQuality >= 80)
-                {
-                    list.Add(new GuetzliWorker(this, _prefs));
-                    _lossyConverted = true;
-                }
-                if (_prefs.JpegOptimEnabled) list.Add(new JpegoptimWorker(this, _prefs));
-                if (_prefs.JpegTranEnabled) list.Add(new JpegtranWorker(this, _prefs));
+                BuildJpegWorkers(list);
                 break;
 
             case FileType.Gif:
@@ -350,6 +344,54 @@ public sealed class Job
         }
 
         return list;
+    }
+
+    /// <summary>
+    /// 按 <see cref="Preferences.JpegToolMode"/> 构建 JPEG 工具链。
+    /// - Best：混合最优——把所有启用（Enabled 开关为 true）的工具都放进队列，逐个执行，采纳最小结果。
+    /// - Jpegli / MozJpeg / JpegOptim / Guetzli：只运行指定的单一工具，忽略对应 Enabled 开关。
+    /// </summary>
+    private void BuildJpegWorkers(List<Worker> list)
+    {
+        switch (_prefs.JpegToolMode)
+        {
+            case JpegToolMode.Jpegli:
+                list.Add(new JpegliWorker(this, _prefs));
+                break;
+
+            case JpegToolMode.MozJpeg:
+                list.Add(new JpegtranWorker(this, _prefs));
+                break;
+
+            case JpegToolMode.JpegOptim:
+                list.Add(new JpegoptimWorker(this, _prefs));
+                break;
+
+            case JpegToolMode.Guetzli:
+                // Guetzli 有质量下限校验，与原逻辑保持一致
+                if (_prefs.JpegOptimMaxQuality >= 80)
+                {
+                    list.Add(new GuetzliWorker(this, _prefs));
+                    _lossyConverted = true;
+                }
+                break;
+
+            case JpegToolMode.Best:
+            default:
+                // 混合最优：Guetzli（有损，需 lossy 前置校验），然后 jpegli、MozJPEG、jpegoptim 依次尝试并竞赛取最优
+                if (!_lossyConverted && _prefs.GuetzliEnabled && _prefs.JpegOptimMaxQuality >= 80)
+                {
+                    list.Add(new GuetzliWorker(this, _prefs));
+                    _lossyConverted = true;
+                }
+                // 首选：jpegli（libjxl 项目的现代 JPEG 编码器）
+                if (_prefs.JpegliEnabled) list.Add(new JpegliWorker(this, _prefs));
+                // 次选：MozJPEG（jpegtran 静态版）
+                if (_prefs.JpegTranEnabled) list.Add(new JpegtranWorker(this, _prefs));
+                // 备用：jpegoptim
+                if (_prefs.JpegOptimEnabled) list.Add(new JpegoptimWorker(this, _prefs));
+                break;
+        }
     }
 
     /// <summary>比较并采纳工具产出的更小结果。</summary>

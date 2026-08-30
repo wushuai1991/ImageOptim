@@ -5,6 +5,20 @@ using System.Text.Json.Serialization;
 namespace ImageOptim;
 
 /// <summary>
+/// JPEG 工具选择模式。
+/// - <see cref="Best"/>：混合最优，所有启用的 JPEG 工具都跑，取体积最小的结果（默认）。
+/// - 其余枚举值：只运行指定的单一工具。
+/// </summary>
+public enum JpegToolMode
+{
+    Best = 0,
+    Jpegli = 1,
+    MozJpeg = 2,
+    JpegOptim = 3,
+    Guetzli = 4,
+}
+
+/// <summary>
 /// 应用偏好设置，对应 macOS 原版的 <c>NSUserDefaults</c> + <c>defaults.plist</c>。
 /// 使用 JSON 文件持久化到用户配置目录，支持默认值注册与读写。
 /// </summary>
@@ -23,6 +37,12 @@ public sealed class Preferences
     // 各工具开关
     public bool AdvPngEnabled { get; set; } = true;
     public int AdvPngLevel { get; set; } = 4;
+
+    /// <summary>JPEG 工具选择模式：Best=混合最优（默认），或指定单一工具。</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public JpegToolMode JpegToolMode { get; set; } = JpegToolMode.Best;
+
+    public bool JpegliEnabled { get; set; } = true;
     public bool JpegOptimEnabled { get; set; } = true;
     public bool JpegTranStripAll { get; set; } = true;
     public bool JpegTranEnabled { get; set; } = true;
@@ -105,7 +125,12 @@ public sealed class Preferences
     {
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (IsPngEnabled()) { result.Add("png"); }
-        if (JpegOptimEnabled || JpegTranEnabled || GuetzliEnabled) { result.Add("jpg"); result.Add("jpeg"); }
+        // JPEG 支持：非 Best 模式下总是启用；Best 模式下需至少一个 JPEG 工具开关为 true
+        if (JpegToolMode != JpegToolMode.Best ||
+            JpegliEnabled || JpegOptimEnabled || JpegTranEnabled || GuetzliEnabled)
+        {
+            result.Add("jpg"); result.Add("jpeg");
+        }
         if (GifsicleEnabled) { result.Add("gif"); }
         if (SvgoEnabled || SvgcleanerEnabled) { result.Add("svg"); }
         return result;

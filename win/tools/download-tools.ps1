@@ -53,6 +53,26 @@ $tools = @(
         IsZip = $true
     },
     @{
+        # jpegli（首选 JPEG 工具）：从libjxl 官方 Windows 静态包中提取 cjpegli.exe
+        Name = "cjpegli"
+        File = "cjpegli.exe"
+        Urls = @(
+            "https://github.com/libjxl/libjxl/releases/download/v0.11.1/jxl-x64-windows-static.zip"
+        )
+        IsZip = $true
+        ZipExeName = "cjpegli.exe"
+    },
+    @{
+        # MozJPEG 官方 Windows 静态版 jpegtran（次选）：从 mozjpeg-v4.0.3-win-x64.zip 中提取 static/Release/jpegtran-static.exe
+        Name = "jpegtran"
+        File = "jpegtran.exe"
+        Urls = @(
+            "https://github.com/mozilla/mozjpeg/releases/download/v4.0.3/mozjpeg-v4.0.3-win-x64.zip"
+        )
+        IsZip = $true
+        ZipExeName = "jpegtran-static.exe"
+    },
+    @{
         Name = "gifsicle"
         File = "gifsicle.exe"
         Urls = @(
@@ -120,8 +140,16 @@ foreach ($tool in $tools) {
                 # 解压并查找 exe
                 $extractDir = Join-Path $env:TEMP "$($tool.Name)-extract"
                 New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+                # 解压前先清空，避免上一个工具的同名 exe 残留影响匹配
+                Get-ChildItem -Path $extractDir -Recurse -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
                 Expand-Archive -Path $tmpZip -DestinationPath $extractDir -Force
-                $exe = Get-ChildItem -Path $extractDir -Recurse -Filter "*.exe" | Where-Object { $_.Name -like "*$($tool.Name)*" } | Select-Object -First 1
+                # 优先用显式指定的 zip 内 exe 名称精确匹配（避免 shared/ 与 static/ 混淆）
+                if ($tool.ContainsKey('ZipExeName') -and -not [string]::IsNullOrEmpty($tool.ZipExeName)) {
+                    $exe = Get-ChildItem -Path $extractDir -Recurse -Filter $tool.ZipExeName | Select-Object -First 1
+                }
+                else {
+                    $exe = Get-ChildItem -Path $extractDir -Recurse -Filter "*.exe" | Where-Object { $_.Name -like "*$($tool.Name)*" } | Select-Object -First 1
+                }
                 if ($exe) {
                     Copy-Item -Path $exe.FullName -Destination $target -Force
                     Write-Host "[完成] $($tool.Name) -> $target"
@@ -149,4 +177,28 @@ foreach ($tool in $tools) {
     }
 }
 
+# 必需工具：缺失会导致核心 PNG/JPEG 压缩能力不可用，必须全部就绪，否则以失败退出。
+# 其余工具（zopflipng/pngcrush/svgo 等）为可选增强，缺失仅警告不阻断。
+$requiredTools = @(
+    "oxipng.exe",    # PNG 无损核心
+    "pngquant.exe",  # PNG 有损核心
+    "jpegoptim.exe", # JPEG 无损核心
+    "cjpegli.exe",   # jpegli（首选 JPEG 工具）
+    "jpegtran.exe"   # MozJPEG（次选 JPEG 工具）
+)
+
+$missingRequired = @()
+foreach ($f in $requiredTools) {
+    $p = Join-Path $Destination $f
+    if (-not (Test-Path $p)) {
+        $missingRequired += $f
+    }
+}
+
+if ($missingRequired.Count -gt 0) {
+    Write-Error "必需工具缺失: $($missingRequired -join ', ')。请检查下载链接或手动将对应 exe 放入 $Destination"
+    exit 1
+}
+
+Write-Host "所有必需工具均已就绪: $($requiredTools -join ', ')"
 Write-Host "工具下载脚本执行完毕。"

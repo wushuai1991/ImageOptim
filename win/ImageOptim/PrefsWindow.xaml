@@ -29,8 +29,25 @@
 
                         <GroupBox Header="JPEG 优化工具" Padding="10" Margin="0,0,0,10">
                             <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,4">
+                                    <TextBlock Text="工具选择模式：" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="CmbJpegMode" Width="240" Margin="8,0,0,0"
+                                              SelectedValuePath="Tag"
+                                              SelectedValue="{Binding JpegToolMode, Mode=TwoWay}">
+                                        <ComboBoxItem Tag="Best" Content="混合最优（默认，多工具竞赛取最小）" />
+                                        <ComboBoxItem Tag="Jpegli" Content="仅使用 jpegli（首选）" />
+                                        <ComboBoxItem Tag="MozJpeg" Content="仅使用 MozJPEG (jpegtran)" />
+                                        <ComboBoxItem Tag="JpegOptim" Content="仅使用 jpegoptim" />
+                                        <ComboBoxItem Tag="Guetzli" Content="仅使用 Guetzli（极慢）" />
+                                    </ComboBox>
+                                </StackPanel>
+                                <TextBlock Margin="0,4,0,8" Foreground="#666666" FontSize="11"
+                                           TextWrapping="Wrap"
+                                           Text="混合最优：下方开关生效，所有勾选的工具都会尝试，采纳体积最小的结果。指定单一工具：忽略下方开关，只运行选定的工具。" />
+
+                                <CheckBox x:Name="ChkJpegli" Content="jpegli（首选，libjxl 现代 JPEG 编码器）" Margin="0,4" IsChecked="{Binding JpegliEnabled}" />
+                                <CheckBox x:Name="ChkJpegTran" Content="MozJPEG (jpegtran)（次选）" Margin="0,4" IsChecked="{Binding JpegTranEnabled}" />
                                 <CheckBox x:Name="ChkJpegOptim" Content="JpegOptim" Margin="0,4" IsChecked="{Binding JpegOptimEnabled}" />
-                                <CheckBox x:Name="ChkJpegTran" Content="MozJPEG (jpegtran)" Margin="0,4" IsChecked="{Binding JpegTranEnabled}" />
                                 <CheckBox x:Name="ChkGuetzli" Content="Guetzli（极慢）" Margin="0,4" IsChecked="{Binding GuetzliEnabled}" />
                             </StackPanel>
                         </GroupBox>

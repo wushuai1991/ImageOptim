@@ -26,8 +26,8 @@ jobs:
 
       - name: 下载图片优化工具
         shell: powershell
-        # 工具下载失败不阻断构建（程序会检测缺失并跳过对应工具），但日志中会显示警告
-        continue-on-error: true
+        # 必需工具（oxipng/pngquant/jpegoptim/cjpegli/jpegtran）下载失败会导致脚本 exit 1 并中断构建；
+        # 可选工具（zopflipng/pngcrush/svgo 等）失败仅警告不阻断。
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File win/tools/download-tools.ps1 -Destination win/ImageOptim/Tools
 
@@ -41,6 +41,23 @@ jobs:
             -p:PublishSingleFile=true `
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:DownloadTools=false
+
+      - name: 校验发布产物包含 Tools 目录
+        shell: powershell
+        run: |
+          $publish = "win/ImageOptim/bin/Release/net8.0-windows/win-x64/publish"
+          $toolsDir = Join-Path $publish "Tools"
+          if (-not (Test-Path $toolsDir)) {
+            Write-Error "发布产物缺少 Tools 目录：$toolsDir。优化工具未被正确打包。"
+            exit 1
+          }
+          $required = @("oxipng.exe", "pngquant.exe", "jpegoptim.exe", "cjpegli.exe", "jpegtran.exe")
+          $missing = $required | Where-Object { -not (Test-Path (Join-Path $toolsDir $_)) }
+          if ($missing) {
+            Write-Error "Tools 目录缺少核心工具: $($missing -join ', ')"
+            exit 1
+          }
+          Write-Host "Tools 目录校验通过，包含: $((Get-ChildItem $toolsDir -Filter '*.exe' | Select-Object -ExpandProperty Name) -join ', ')"
 
       - name: 列出产物
         shell: powershell
