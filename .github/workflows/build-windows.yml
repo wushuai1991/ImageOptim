@@ -48,16 +48,16 @@ jobs:
           $publish = "win/ImageOptim/bin/Release/net8.0-windows/win-x64/publish"
           $toolsDir = Join-Path $publish "Tools"
           if (-not (Test-Path $toolsDir)) {
-            Write-Error "发布产物缺少 Tools 目录：$toolsDir。优化工具未被正确打包。"
+            Write-Error "Published output is missing the Tools directory: $toolsDir. Optimizer tools were not packaged correctly."
             exit 1
           }
           $required = @("oxipng.exe", "pngquant.exe", "jpegoptim.exe", "cjpegli.exe", "jpegtran.exe")
           $missing = $required | Where-Object { -not (Test-Path (Join-Path $toolsDir $_)) }
           if ($missing) {
-            Write-Error "Tools 目录缺少核心工具: $($missing -join ', ')"
+            Write-Error "Tools directory is missing core tools: $($missing -join ', ')"
             exit 1
           }
-          Write-Host "Tools 目录校验通过，包含: $((Get-ChildItem $toolsDir -Filter '*.exe' | Select-Object -ExpandProperty Name) -join ', ')"
+          Write-Host "Tools directory check passed, contains: $((Get-ChildItem $toolsDir -Filter '*.exe' | Select-Object -ExpandProperty Name) -join ', ')"
 
       - name: 列出产物
         shell: powershell

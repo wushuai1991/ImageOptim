@@ -1,9 +1,11 @@
-# ImageOptim Windows 版工具下载脚本
-# 在构建时被 MSBuild 调用，下载各图片优化工具的 Windows 预编译二进制到 Tools 目录。
-# 若下载失败，仅输出警告而不阻断构建（用户可手动将 .exe 放入 Tools 目录）。
+# ImageOptim Windows tool download script.
+# Called by MSBuild during build to download Windows prebuilt binaries of each
+# image optimizer tool into the Tools directory.
+# Download failures only produce warnings and do not block the build
+# (users can manually place .exe files into the Tools directory).
 #
-# 用法：
-#   powershell -NoProfile -ExecutionPolicy Bypass -File download-tools.ps1 -Destination <Tools目录>
+# Usage:
+#   powershell -NoProfile -ExecutionPolicy Bypass -File download-tools.ps1 -Destination <ToolsDir>
 
 param(
     [string]$Destination = ""
@@ -16,9 +18,9 @@ if ([string]::IsNullOrEmpty($Destination)) {
 }
 
 New-Item -ItemType Directory -Force -Path $Destination | Out-Null
-Write-Host "工具输出目录: $Destination"
+Write-Host "Tool output directory: $Destination"
 
-# 每个工具条目：名称、文件名、下载 URL 列表（按优先级尝试）
+# Each tool entry: name, file name, download URL list (tried in priority order)
 $tools = @(
     @{
         Name = "oxipng"
@@ -53,7 +55,7 @@ $tools = @(
         IsZip = $true
     },
     @{
-        # jpegli（首选 JPEG 工具）：从libjxl 官方 Windows 静态包中提取 cjpegli.exe
+        # jpegli (preferred JPEG tool): extract cjpegli.exe from the official libjxl Windows static package
         Name = "cjpegli"
         File = "cjpegli.exe"
         Urls = @(
@@ -63,7 +65,7 @@ $tools = @(
         ZipExeName = "cjpegli.exe"
     },
     @{
-        # MozJPEG 官方 Windows 静态版 jpegtran（次选）：从 mozjpeg-v4.0.3-win-x64.zip 中提取 static/Release/jpegtran-static.exe
+        # MozJPEG official Windows static jpegtran (secondary): extract static/Release/jpegtran-static.exe from mozjpeg-v4.0.3-win-x64.zip
         Name = "jpegtran"
         File = "jpegtran.exe"
         Urls = @(
@@ -125,32 +127,32 @@ $tools = @(
 foreach ($tool in $tools) {
     $target = Join-Path $Destination $tool.File
     if (Test-Path $target) {
-        Write-Host "[跳过] $($tool.Name) 已存在: $target"
+        Write-Host "[Skip] $($tool.Name) already exists: $target"
         continue
     }
 
     $downloaded = $false
     foreach ($url in $tool.Urls) {
-        # 每个 URL 最多重试 3 次，应对网络抖动与大文件（如 50MB 的 libjxl 包）下载超时
+        # Retry each URL up to 3 times to handle network jitter and large-file timeouts (e.g. the 50MB libjxl package)
         for ($attempt = 1; $attempt -le 3 -and -not $downloaded; $attempt++) {
             $tmpZip = Join-Path $env:TEMP "$($tool.Name)-download"
             try {
                 if ($attempt -gt 1) {
-                    Write-Host "[重试] $($tool.Name) 第 $attempt 次尝试 <- $url"
+                    Write-Host "[Retry] $($tool.Name) attempt $attempt <- $url"
                 }
                 else {
-                    Write-Host "[下载] $($tool.Name) <- $url"
+                    Write-Host "[Download] $($tool.Name) <- $url"
                 }
                 Invoke-WebRequest -Uri $url -OutFile $tmpZip -UseBasicParsing -TimeoutSec 300
 
                 if ($tool.IsZip) {
-                    # 解压并查找 exe
+                    # Extract and locate the exe
                     $extractDir = Join-Path $env:TEMP "$($tool.Name)-extract"
                     New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
-                    # 解压前先清空，避免上一个工具的同名 exe 残留影响匹配
+                    # Clear the extract dir first to avoid leftover exe from a previous tool affecting the match
                     Get-ChildItem -Path $extractDir -Recurse -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
                     Expand-Archive -Path $tmpZip -DestinationPath $extractDir -Force
-                    # 优先用显式指定的 zip 内 exe 名称精确匹配（避免 shared/ 与 static/ 混淆）
+                    # Prefer exact exe name inside the zip when ZipExeName is specified (avoid shared/ vs static/ confusion)
                     if ($tool.ContainsKey('ZipExeName') -and -not [string]::IsNullOrEmpty($tool.ZipExeName)) {
                         $exe = Get-ChildItem -Path $extractDir -Recurse -Filter $tool.ZipExeName | Select-Object -First 1
                     }
@@ -159,18 +161,18 @@ foreach ($tool in $tools) {
                     }
                     if ($exe) {
                         Copy-Item -Path $exe.FullName -Destination $target -Force
-                        Write-Host "[完成] $($tool.Name) -> $target"
+                        Write-Host "[Done] $($tool.Name) -> $target"
                         $downloaded = $true
                     }
                 }
                 else {
                     Copy-Item -Path $tmpZip -Destination $target -Force
-                    Write-Host "[完成] $($tool.Name) -> $target"
+                    Write-Host "[Done] $($tool.Name) -> $target"
                     $downloaded = $true
                 }
             }
             catch {
-                Write-Warning "[失败] $($tool.Name) 从 $url 下载失败(第 $attempt 次): $($_.Exception.Message)"
+                Write-Warning "[Failed] $($tool.Name) download failed (attempt $attempt) from $url: $($_.Exception.Message)"
                 if ($attempt -lt 3) { Start-Sleep -Seconds 3 }
             }
             finally {
@@ -181,18 +183,18 @@ foreach ($tool in $tools) {
     }
 
     if (-not $downloaded) {
-        Write-Warning "[警告] 无法下载 $($tool.Name)，请手动将 $($tool.File) 放入 $Destination"
+        Write-Warning "[Warning] Could not download $($tool.Name); please manually place $($tool.File) into $Destination"
     }
 }
 
-# 必需工具：缺失会导致核心 PNG/JPEG 压缩能力不可用，必须全部就绪，否则以失败退出。
-# 其余工具（zopflipng/pngcrush/svgo 等）为可选增强，缺失仅警告不阻断。
+# Required tools: missing any of these breaks core PNG/JPEG optimization, so fail the build.
+# Other tools (zopflipng/pngcrush/svgo, etc.) are optional enhancements; missing ones only warn.
 $requiredTools = @(
-    "oxipng.exe",    # PNG 无损核心
-    "pngquant.exe",  # PNG 有损核心
-    "jpegoptim.exe", # JPEG 无损核心
-    "cjpegli.exe",   # jpegli（首选 JPEG 工具）
-    "jpegtran.exe"   # MozJPEG（次选 JPEG 工具）
+    "oxipng.exe",    # core PNG lossless
+    "pngquant.exe",  # core PNG lossy
+    "jpegoptim.exe", # core JPEG lossless
+    "cjpegli.exe",   # jpegli (preferred JPEG tool)
+    "jpegtran.exe"   # MozJPEG (secondary JPEG tool)
 )
 
 $missingRequired = @()
@@ -204,9 +206,9 @@ foreach ($f in $requiredTools) {
 }
 
 if ($missingRequired.Count -gt 0) {
-    Write-Error "必需工具缺失: $($missingRequired -join ', ')。请检查下载链接或手动将对应 exe 放入 $Destination"
+    Write-Error "Missing required tools: $($missingRequired -join ', '). Please check the download URLs or manually place the exe files into $Destination"
     exit 1
 }
 
-Write-Host "所有必需工具均已就绪: $($requiredTools -join ', ')"
-Write-Host "工具下载脚本执行完毕。"
+Write-Host "All required tools are ready: $($requiredTools -join ', ')"
+Write-Host "Tool download script completed."
