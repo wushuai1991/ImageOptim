@@ -131,45 +131,53 @@ foreach ($tool in $tools) {
 
     $downloaded = $false
     foreach ($url in $tool.Urls) {
-        $tmpZip = Join-Path $env:TEMP "$($tool.Name)-download"
-        try {
-            Write-Host "[下载] $($tool.Name) <- $url"
-            Invoke-WebRequest -Uri $url -OutFile $tmpZip -UseBasicParsing -TimeoutSec 120
-
-            if ($tool.IsZip) {
-                # 解压并查找 exe
-                $extractDir = Join-Path $env:TEMP "$($tool.Name)-extract"
-                New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
-                # 解压前先清空，避免上一个工具的同名 exe 残留影响匹配
-                Get-ChildItem -Path $extractDir -Recurse -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-                Expand-Archive -Path $tmpZip -DestinationPath $extractDir -Force
-                # 优先用显式指定的 zip 内 exe 名称精确匹配（避免 shared/ 与 static/ 混淆）
-                if ($tool.ContainsKey('ZipExeName') -and -not [string]::IsNullOrEmpty($tool.ZipExeName)) {
-                    $exe = Get-ChildItem -Path $extractDir -Recurse -Filter $tool.ZipExeName | Select-Object -First 1
+        # 每个 URL 最多重试 3 次，应对网络抖动与大文件（如 50MB 的 libjxl 包）下载超时
+        for ($attempt = 1; $attempt -le 3 -and -not $downloaded; $attempt++) {
+            $tmpZip = Join-Path $env:TEMP "$($tool.Name)-download"
+            try {
+                if ($attempt -gt 1) {
+                    Write-Host "[重试] $($tool.Name) 第 $attempt 次尝试 <- $url"
                 }
                 else {
-                    $exe = Get-ChildItem -Path $extractDir -Recurse -Filter "*.exe" | Where-Object { $_.Name -like "*$($tool.Name)*" } | Select-Object -First 1
+                    Write-Host "[下载] $($tool.Name) <- $url"
                 }
-                if ($exe) {
-                    Copy-Item -Path $exe.FullName -Destination $target -Force
+                Invoke-WebRequest -Uri $url -OutFile $tmpZip -UseBasicParsing -TimeoutSec 300
+
+                if ($tool.IsZip) {
+                    # 解压并查找 exe
+                    $extractDir = Join-Path $env:TEMP "$($tool.Name)-extract"
+                    New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+                    # 解压前先清空，避免上一个工具的同名 exe 残留影响匹配
+                    Get-ChildItem -Path $extractDir -Recurse -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+                    Expand-Archive -Path $tmpZip -DestinationPath $extractDir -Force
+                    # 优先用显式指定的 zip 内 exe 名称精确匹配（避免 shared/ 与 static/ 混淆）
+                    if ($tool.ContainsKey('ZipExeName') -and -not [string]::IsNullOrEmpty($tool.ZipExeName)) {
+                        $exe = Get-ChildItem -Path $extractDir -Recurse -Filter $tool.ZipExeName | Select-Object -First 1
+                    }
+                    else {
+                        $exe = Get-ChildItem -Path $extractDir -Recurse -Filter "*.exe" | Where-Object { $_.Name -like "*$($tool.Name)*" } | Select-Object -First 1
+                    }
+                    if ($exe) {
+                        Copy-Item -Path $exe.FullName -Destination $target -Force
+                        Write-Host "[完成] $($tool.Name) -> $target"
+                        $downloaded = $true
+                    }
+                }
+                else {
+                    Copy-Item -Path $tmpZip -Destination $target -Force
                     Write-Host "[完成] $($tool.Name) -> $target"
                     $downloaded = $true
-                    break
                 }
             }
-            else {
-                Copy-Item -Path $tmpZip -Destination $target -Force
-                Write-Host "[完成] $($tool.Name) -> $target"
-                $downloaded = $true
-                break
+            catch {
+                Write-Warning "[失败] $($tool.Name) 从 $url 下载失败(第 $attempt 次): $($_.Exception.Message)"
+                if ($attempt -lt 3) { Start-Sleep -Seconds 3 }
+            }
+            finally {
+                Remove-Item -Path $tmpZip -Force -ErrorAction SilentlyContinue
             }
         }
-        catch {
-            Write-Warning "[失败] $($tool.Name) 从 $url 下载失败: $($_.Exception.Message)"
-        }
-        finally {
-            Remove-Item -Path $tmpZip -Force -ErrorAction SilentlyContinue
-        }
+        if ($downloaded) { break }
     }
 
     if (-not $downloaded) {
