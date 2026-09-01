@@ -135,7 +135,11 @@ foreach ($tool in $tools) {
     foreach ($url in $tool.Urls) {
         # Retry each URL up to 3 times to handle network jitter and large-file timeouts (e.g. the 50MB libjxl package)
         for ($attempt = 1; $attempt -le 3 -and -not $downloaded; $attempt++) {
-            $tmpZip = Join-Path $env:TEMP "$($tool.Name)-download"
+            # Windows PowerShell 5.1 的 Expand-Archive 要求输入文件路径以 .zip 结尾，
+            # 因此 zip 工具的临时下载文件必须带 .zip 扩展名，否则会报
+            # "is not a supported archive file format. .zip is the only supported archive file format."
+            $tmpSuffix = if ($tool.IsZip) { ".zip" } else { ".bin" }
+            $tmpZip = Join-Path $env:TEMP "$($tool.Name)-download$tmpSuffix"
             try {
                 if ($attempt -gt 1) {
                     Write-Host "[Retry] $($tool.Name) attempt $attempt <- $url"
