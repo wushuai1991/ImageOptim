@@ -42,6 +42,20 @@ jobs:
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:DownloadTools=false
 
+      - name: 复制优化工具到发布目录
+        shell: powershell
+        run: |
+          $src = "win/ImageOptim/Tools"
+          $dst = "win/ImageOptim/bin/Release/net8.0-windows/win-x64/publish/Tools"
+          if (-not (Test-Path $src)) {
+            Write-Error "Source Tools directory not found: $src"
+            exit 1
+          }
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item -Path (Join-Path $src '*') -Destination $dst -Recurse -Force
+          $names = (Get-ChildItem $dst -Filter '*.exe' | Select-Object -ExpandProperty Name) -join ', '
+          Write-Host "Copied tools to publish directory: $names"
+
       - name: 校验发布产物包含 Tools 目录
         shell: powershell
         run: |
