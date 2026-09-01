@@ -172,7 +172,7 @@ foreach ($tool in $tools) {
                 }
             }
             catch {
-                Write-Warning "[Failed] $($tool.Name) download failed (attempt $attempt) from $url: $($_.Exception.Message)"
+                Write-Warning "[Failed] $($tool.Name) download failed (attempt $attempt) from ${url}: $($_.Exception.Message)"
                 if ($attempt -lt 3) { Start-Sleep -Seconds 3 }
             }
             finally {
