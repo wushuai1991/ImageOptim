@@ -26,8 +26,8 @@ NS_ASSUME_NONNULL_BEGIN
 
     NSOperationQueue *fileIOQueue;
     ResultsDb *db;
-    uint32_t settingsHash[4];
-    uint32_t inputFileHash[4];
+    uint32_t settingsHash[8]; // SHA-256 = 32 字节
+    uint32_t inputFileHash[8];
 
     BOOL stopping, lossyConverted;
 }

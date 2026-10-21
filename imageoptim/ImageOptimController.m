@@ -11,12 +11,22 @@
 #include <mach/mach_host.h>
 #include <mach/host_info.h>
 #import <Quartz/Quartz.h>
+#include <stdatomic.h>
 
 @implementation ImageOptimController
 
 extern int quitWhenDone;
 
 static const char *kIMPreviewPanelContext = "preview";
+
+// 状态栏统计缓存。
+// statusBarDirty 表示"自上次统计后是否有变化"，用 C11 原子量在 KVO（主线程）与统计队列
+// （后台）之间传递，避免为这个标记再加一把锁去和主线程抢。
+static atomic_bool statusBarDirty = true;
+static atomic_bool statusBarRetryScheduled = false;
+static CFAbsoluteTime statusBarLastScan = 0;
+static NSString *statusBarCachedText = nil;
+static BOOL statusBarCachedSelectable = NO;
 
 @synthesize filesController;
 
@@ -121,6 +131,35 @@ static void appendFormatNameIfLossyEnabled(NSUserDefaults *defs, NSString *name,
     statusBarUpdateQueue = dispatch_source_create(DISPATCH_SOURCE_TYPE_DATA_OR, 0, 0,
                                                   dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0));
     dispatch_source_set_event_handler(statusBarUpdateQueue, ^{
+        // 抢脏标记：没抢到说明上次统计之后没有任何变化，直接复用缓存，
+        // 空闲时不再做全量遍历（旧实现是每 10Hz 无条件扫一遍所有文件）。
+        BOOL needsUpdate = atomic_exchange(&statusBarDirty, false);
+
+        // 限流：距上次统计不足 100ms 就先不扫，安排 100ms 后再触发一次。
+        // 旧实现靠 usleep(100000) 阻塞一个 GCD 线程来限流。
+        if (needsUpdate && (CFAbsoluteTimeGetCurrent() - statusBarLastScan) < 0.1) {
+            atomic_store(&statusBarDirty, true);
+            if (!atomic_exchange(&statusBarRetryScheduled, true)) {
+                // 注意：dispatch_after 的第二个参数是 queue，不是 source
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)),
+                               dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
+                                   atomic_store(&statusBarRetryScheduled, false);
+                                   dispatch_source_merge_data(self->statusBarUpdateQueue, 1);
+                               });
+            }
+            needsUpdate = NO;
+        }
+
+        if (!needsUpdate && statusBarCachedText) {
+            NSString *cachedStr = statusBarCachedText;
+            BOOL cachedSelectable = statusBarCachedSelectable;
+            dispatch_async(dispatch_get_main_queue(), ^() {
+                [self->statusBarLabel setStringValue:cachedStr];
+                [self->statusBarLabel setSelectable:cachedSelectable];
+            });
+            return;
+        }
+
         NSString *str = defaultText;
         BOOL selectable = NO;
         @synchronized(self->filesController) {
@@ -198,13 +237,17 @@ static void appendFormatNameIfLossyEnabled(NSUserDefaults *defs, NSString *name,
 
             // that was also in KVO, but caused deadlocks there. Here it's deferred.
             [self->filesController updateStoppableState];
+
+            // 缓存本次结果，供"没有变化"的事件直接复用
+            statusBarLastScan = CFAbsoluteTimeGetCurrent();
+            statusBarCachedText = str;
+            statusBarCachedSelectable = selectable;
         }
 
         dispatch_async(dispatch_get_main_queue(), ^() {
             [self->statusBarLabel setStringValue:str];
             [self->statusBarLabel setSelectable:selectable];
         });
-        usleep(100000); // 1/10th of a sec to avoid updating statusbar as fast as possible (100% cpu on the statusbar alone is ridiculous)
     });
     dispatch_resume(statusBarUpdateQueue);
 
@@ -224,6 +267,7 @@ static void appendFormatNameIfLossyEnabled(NSUserDefaults *defs, NSString *name,
 }
 
 - (void)updateStatusBar {
+    atomic_store(&statusBarDirty, true);
     dispatch_source_merge_data(statusBarUpdateQueue, 1);
 }
 
@@ -290,6 +334,7 @@ static void appendFormatNameIfLossyEnabled(NSUserDefaults *defs, NSString *name,
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
     // Defer and coalesce statusbar updates
+    atomic_store(&statusBarDirty, true);
     dispatch_source_merge_data(statusBarUpdateQueue, 1);
 
     if (object == credits && [keyPath isEqualToString:@"effectiveAppearance"]) {

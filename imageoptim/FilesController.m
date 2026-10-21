@@ -30,7 +30,7 @@ static NSString *kIMDraggedRowIndexesPboardType = @"com.imageoptim.rows";
     BOOL isEnabled, isBusy, isStoppable;
     NSInteger nextInsertRow;
 
-    NSHashTable *seenPathHashes;
+    NSMutableDictionary<NSString *, JobProxy *> *jobsByPath;
     ResultsDb *db;
 }
 
@@ -38,7 +38,7 @@ static NSString *kIMDraggedRowIndexesPboardType = @"com.imageoptim.rows";
 
 - (void)configureWithTableView:(NSTableView *)inTableView {
     tableView = inTableView;
-    seenPathHashes = [NSHashTable weakObjectsHashTable];
+    jobsByPath = [NSMutableDictionary new];
     db = [ResultsDb new];
 
     queueWaitingLock = [NSLock new];
@@ -68,6 +68,9 @@ static NSString *kIMDraggedRowIndexesPboardType = @"com.imageoptim.rows";
 }
 
 - (void)setRow:(NSInteger)row {
+    // nextInsertRow 只在主线程读写（setRow: / 拖放 / 粘贴 / addJobObjects:），
+    // 断言把这条约定固化下来，避免以后有人在后台线程调进来。
+    NSAssert([NSThread isMainThread], @"setRow: must be called on the main thread");
     nextInsertRow = row;
 }
 
@@ -117,6 +120,16 @@ static NSString *kIMDraggedRowIndexesPboardType = @"com.imageoptim.rows";
 }
 
 - (void)removeObjects:(NSArray *)objects {
+    // 索引持有 JobProxy 强引用，移除时必须同步摘掉，否则路径会一直被判定为"已添加"
+    @synchronized(self) {
+        for (JobProxy *f in objects) {
+            NSString *pathString = f.filePath.path;
+            if (pathString && jobsByPath[pathString] == f) {
+                [jobsByPath removeObjectForKey:pathString];
+            }
+        }
+    }
+
     [super removeObjects:objects];
     [objects makeObjectsPerformSelector:@selector(cleanup)];
 }
@@ -209,7 +222,7 @@ static NSString *kIMDraggedRowIndexesPboardType = @"com.imageoptim.rows";
         return YES;
     } else {
         NSArray *paths = [pboard propertyListForType:NSFilenamesPboardType];
-        nextInsertRow = row;
+        [self setRow:row];
         [self performSelectorInBackground:@selector(addPaths:) withObject:paths];
     }
 
@@ -218,41 +231,48 @@ static NSString *kIMDraggedRowIndexesPboardType = @"com.imageoptim.rows";
     return YES;
 }
 
-/** selfLock must be locked before using this
-    That's a dumb linear search. Would be nice to replace NSArray with NSSet or NSHashTable.
+/** 按路径索引查已添加的文件，O(1)。
+    早先用 NSHashTable 做存在性判断再线性扫描 content，批量添加时是 O(n²)。
  */
 - (JobProxy *)findFileByPath:(NSURL *)path {
-    if (![seenPathHashes containsObject:path]) {
+    NSString *pathString = path.path;
+    if (!pathString) {
         return nil;
     }
 
-    NSString *pathString = path.path;
-    for (JobProxy *f in [self content]) {
-        assert([f isKindOfClass:[JobProxy class]]);
-        if ([pathString isEqualToString:f.filePath.path]) {
-            return f;
-        }
+    @synchronized(self) {
+        return jobsByPath[pathString];
     }
-    return nil;
 }
 
 - (void)addJobObjects:(NSArray<JobProxy *> *)files {
+    // 空批次直接返回：否则会白注册一条 undo，还会动一次列表
+    if (![files count]) {
+        return;
+    }
+
+    NSAssert([NSThread isMainThread], @"addJobObjects: must be called on the main thread");
+
     [[tableView undoManager] registerUndoWithTarget:self selector:@selector(removeObjects:) object:files];
     [[tableView undoManager] setActionName:NSLocalizedString(@"Add", @"undo command name")];
 
     @synchronized(self) {
-        if (nextInsertRow < 0 || nextInsertRow >= [[self arrangedObjects] count]) {
+        NSInteger count = (NSInteger)[[self arrangedObjects] count];
+
+        if (nextInsertRow < 0 || nextInsertRow >= count) {
             [self addObjects:files];
+            // 追加后把插入位置同步到队尾，避免留下一个越界的旧值
+            nextInsertRow = (NSInteger)[[self arrangedObjects] count];
         } else {
-            NSIndexSet *set = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(nextInsertRow, [files count])];
+            NSIndexSet *set = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange((NSUInteger)nextInsertRow, [files count])];
             [self insertObjects:files atArrangedObjectIndexes:set];
-            nextInsertRow += [files count];
+            nextInsertRow += (NSInteger)[files count];
         }
     }
 }
 
 - (void)addURLsBelowSelection:(NSArray<NSURL *> *)paths {
-    nextInsertRow = [self selectionIndex];
+    [self setRow:[self selectionIndex]];
     [self performSelectorInBackground:@selector(addURLs:) withObject:paths];
 }
 
@@ -301,17 +321,23 @@ static NSString *kIMDraggedRowIndexesPboardType = @"com.imageoptim.rows";
         }
 
         if (!isDir) {
-            JobProxy *old = [self findFileByPath:path];
-            if (old) {
-                if (![old isBusy]) {
-                    [jobQueue addJob:old.job];
+            // 查重与登记必须原子完成，否则并发添加同一路径会建出两个 Job
+            @synchronized(self) {
+                NSString *pathString = path.path;
+                JobProxy *old = pathString ? jobsByPath[pathString] : nil;
+                if (old) {
+                    if (![old isBusy]) {
+                        [jobQueue addJob:old.job];
+                    }
+                } else {
+                    Job *f = [[Job alloc] initWithFilePath:path resultsDatabase:db];
+                    JobProxy *jobProxy = [[JobProxy alloc] initWithJob:f];
+                    if (pathString) {
+                        jobsByPath[pathString] = jobProxy;
+                    }
+                    [toAdd addObject:jobProxy];
+                    [jobQueue addJob:f];
                 }
-            } else {
-                [seenPathHashes addObject:path]; // used by findFileByPath
-                Job *f = [[Job alloc] initWithFilePath:path resultsDatabase:db];
-                JobProxy *jobProxy = [[JobProxy alloc] initWithJob:f];
-                [toAdd addObject:jobProxy];
-                [jobQueue addJob:f];
             }
         } else {
             DirScanner *w = [[DirScanner alloc] initWithPath:path filesController:self extensions:[self extensions]];
@@ -368,18 +394,16 @@ static NSString *kIMDraggedRowIndexesPboardType = @"com.imageoptim.rows";
 }
 
 - (void)clearComplete {
-    NSUInteger i = 0;
-    NSMutableIndexSet *set = [NSMutableIndexSet new];
-
     @synchronized(self) {
+        // 走 removeObjects: 统一出口，保证 jobsByPath 索引同步清理
+        NSMutableArray *done = [NSMutableArray new];
         for (JobProxy *f in [self arrangedObjects]) {
             if (f.isDone) {
-                [set addIndex:i];
+                [done addObject:f];
             }
-            i++;
         }
-        if ([set count]) {
-            [self removeObjectsAtArrangedObjectIndexes:set];
+        if ([done count]) {
+            [self removeObjects:done];
         }
     }
     [self setRow:-1];

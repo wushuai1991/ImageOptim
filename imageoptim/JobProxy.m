@@ -147,7 +147,6 @@ static id nullToNil(id maybeNull) {
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey, id> *)change context:(void *)context {
     BOOL isPrior = [[change valueForKey:@"notificationIsPrior"] boolValue];
-    NSLog(@"observed prior=%d main=%d  %@ %@", (int)isPrior, (int)[NSThread isMainThread], keyPath, change);
     BOOL isPercentRelated = [keyPath isEqualToString:@"byteSizeOptimized"] ||
                             [keyPath isEqualToString:@"byteSizeOriginal"] ||
                             [keyPath isEqualToString:@"savedOutput"] ||
@@ -165,7 +164,6 @@ static id nullToNil(id maybeNull) {
             if (isPercentRelated) {
                 [self didChangeValueForKey:@"percentOptimized"];
             }
-            NSLog(@"Did change %@ to %@", keyPath, new);
             [self didChangeValueForKey:keyPath];
         }
     };

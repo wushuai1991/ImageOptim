@@ -71,8 +71,9 @@
         return nil;
     }
 
-    if (s != [File byteSize:path]) {
-        NSLog(@"Expected size %d, but file is actually %d", (int)s, (int)[File byteSize:path]);
+    NSUInteger actualSize = [File byteSize:path];
+    if (s != actualSize) {
+        IOWarn(@"Expected size %lu, but file is actually %lu", (unsigned long)s, (unsigned long)actualSize);
         return nil;
     }
     return [[TempFile alloc] initWithType:fileType size:s fromPath:path];

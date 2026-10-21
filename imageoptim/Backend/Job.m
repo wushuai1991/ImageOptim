@@ -359,19 +359,21 @@
                 return NO;
             }
 
-            NSData *data = [NSData dataWithContentsOfURL:fileToSave.path];
-            if (!data) {
-                IOWarn("Unable to read %@", fileToSave.path);
+            // 先按元数据校验，保持"出错就早退"的语义——不必把整个文件读进来才知道大小
+            NSUInteger sourceSize = [File byteSize:fileToSave.path];
+            if (sourceSize != fileToSave.byteSize) {
+                IOWarn("Temp file size %u does not match expected %u in %@ for %@", (unsigned int)sourceSize, (unsigned int)fileToSave.byteSize, fileToSave.path, filePath.path);
                 return NO;
             }
 
-            if ([data length] != fileToSave.byteSize) {
-                IOWarn("Temp file size %u does not match expected %u in %@ for %@", (unsigned int)[data length], (unsigned int)fileToSave.byteSize, fileToSave.path, filePath.path);
-                return NO;
-            }
-
-            if ([data length] < 30) {
+            if (sourceSize < 30) {
                 IOWarn("File %@ is suspiciously small, could be truncated", fileToSave.path);
+                return NO;
+            }
+
+            NSFileHandle *readhandle = [NSFileHandle fileHandleForReadingAtPath:fileToSave.path.path];
+            if (!readhandle) {
+                IOWarn("Unable to read %@", fileToSave.path);
                 return NO;
             }
 
@@ -379,12 +381,35 @@
             NSFileHandle *writehandle = [NSFileHandle fileHandleForWritingToURL:writeToURL error:nil];
             if (!writehandle) {
                 IOWarn("Unable to open %@ for writing. Check file permissions.", filePath.path);
+                [readhandle closeFile];
                 return NO;
             }
 
-            [writehandle writeData:data]; // this throws on failure
-            [writehandle truncateFileAtOffset:[data length]];
-            [writehandle closeFile];
+            // 分块搬运。原来用 NSData dataWithContentsOfURL: 把整个优化结果读进内存，
+            // 几百 MB 的图会瞬间吃掉同量级内存；改为 1MB 分块 + 自动释放池。
+            const NSUInteger chunkSize = 1024 * 1024;
+            NSUInteger totalWritten = 0;
+            @try {
+                for (;;) {
+                    @autoreleasepool {
+                        NSData *chunk = [readhandle readDataOfLength:chunkSize];
+                        if (!chunk.length) {
+                            break;
+                        }
+                        [writehandle writeData:chunk]; // this throws on failure
+                        totalWritten += chunk.length;
+                    }
+                }
+                [writehandle truncateFileAtOffset:totalWritten];
+            } @finally {
+                [readhandle closeFile];
+                [writehandle closeFile];
+            }
+
+            if (totalWritten != sourceSize) {
+                IOWarn("Wrote %u bytes but expected %u in %@ for %@", (unsigned int)totalWritten, (unsigned int)sourceSize, fileToSave.path, filePath.path);
+                return NO;
+            }
 
             moveFromPath = writeToURL;
         }
@@ -512,19 +537,17 @@
     }
     [self didChangeValueForKey:@"isBusy"];
 }
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 - (void)setSettingsHash:(NSArray *)allWorkers {
-    CC_MD5_CTX md5ctx = {};
-    CC_MD5_Init(&md5ctx);
-    CC_MD5_Update(&md5ctx, "3", 1); // to update when programs change
+    // 用 SHA-256 而非已被弃用的 CC_MD5（缓存键，非安全用途，但能顺带去掉 -Wdeprecated 压制）
+    CC_SHA256_CTX sha256ctx = {};
+    CC_SHA256_Init(&sha256ctx);
+    CC_SHA256_Update(&sha256ctx, "4", 1); // to update when programs change（"3"→"4" 同时作废旧缓存）
     for (Worker *w in allWorkers) {
         NSInteger tmp = [w settingsIdentifier];
-        CC_MD5_Update(&md5ctx, &tmp, sizeof(tmp));
+        CC_SHA256_Update(&sha256ctx, &tmp, sizeof(tmp));
     }
-    CC_MD5_Final((unsigned char *)settingsHash, &md5ctx);
+    CC_SHA256_Final((unsigned char *)settingsHash, &sha256ctx);
 }
-#pragma GCC diagnostic pop
 
 - (void)doEnqueueWorkersInCPUQueue:(nonnull NSOperationQueue *)queue serialQueue:(dispatch_queue_t)serialQueue defaults:(nonnull NSUserDefaults *)defs {
     [self setStatus:@"progress" order:3 text:NSLocalizedString(@"Inspecting file", @"tooltip")];
@@ -671,20 +694,17 @@
     // Create a hash that includes all optimization settings to invalidate file caches on settings changes
     [self setSettingsHash:[runFirst arrayByAddingObjectsFromArray:runLater]];
 
-    // Can't check only file size, because then hash won't be available on save! if ([db hasResultWithFileSize:byteSizeOnDisk]) {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    CC_MD5_CTX md5ctx = {}, *md5ctxp = &md5ctx;
-    CC_MD5_Init(md5ctxp);
-    CC_MD5_Update(md5ctxp, settingsHash, 16);
-    CC_MD5_Update(md5ctxp, [fileData bytes], (CC_LONG)[fileData length]);
-    CC_MD5_Final((unsigned char *)inputFileHash, md5ctxp);
+    // Can't check only file size, because then hash won't be available on save!
+    CC_SHA256_CTX sha256ctx = {};
+    CC_SHA256_Init(&sha256ctx);
+    CC_SHA256_Update(&sha256ctx, settingsHash, (CC_LONG)sizeof(settingsHash));
+    CC_SHA256_Update(&sha256ctx, [fileData bytes], (CC_LONG)[fileData length]);
+    CC_SHA256_Final((unsigned char *)inputFileHash, &sha256ctx);
     if ([db getResultWithHash:inputFileHash]) { // FIXME: check for lossy
-        NSLog(@"Skipping %@, because it has been optimized before", filePath.path);
+        IODebug(@"Skipping %@, because it has been optimized before", filePath.path);
         [self setNooptStatus];
         return;
     }
-#pragma GCC diagnostic pop
     NSOperation *saveOp = [[Save alloc] initWithTarget:self selector:@selector(saveResultAndUpdateStatus) object:nil];
 
     Worker *previousWorker = nil;

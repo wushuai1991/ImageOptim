@@ -89,24 +89,37 @@
                                   [self.jobQueue wait];
 
                                   BOOL optimized = [f isOptimized];
-                                  [[self status] setStringValue:
-                                                     optimized ? [@"Optimized with " stringByAppendingString:[f bestToolName]]
-                                                               : @"Already optimized"];
-                                  sleep(1);
-                                  self.currentFile = nil;
+                                  NSString *bestToolName = [f bestToolName];
+                                  NSString *statusText = optimized
+                                      ? [@"Optimized with " stringByAppendingString:(bestToolName ?: @"")]
+                                      : @"Already optimized";
+
+                                  // 这里在后台队列：AppKit 控件必须回主线程更新
+                                  dispatch_async(dispatch_get_main_queue(), ^() {
+                                      self.status.stringValue = statusText;
+                                      self.currentFile = nil;
+                                  });
 
                                   if (optimized) {
                                       NSItemProvider *result = [[NSItemProvider alloc] initWithContentsOfURL:tmpFilePathCopy];
                                       inputItem.attachments = @[ result ];
-                                      [self.extensionContext completeRequestReturningItems:@[ inputItem ]
-                                                                         completionHandler:^(BOOL res) {
-                                                                             NSLog(@"Returned image %d > %d (%d)", [f byteSizeOriginal].intValue, (int)f.savedOutput.byteSize, (int)res);
-                                                                             [[NSFileManager defaultManager] removeItemAtURL:tmpFilePathCopy error:nil];
-                                                                             self->tempFilePath = nil;
-                                                                         }];
+
+                                      // 让用户看到结果 1 秒后再关闭窗口。
+                                      // 原来是 sleep(1) 阻塞后台线程，改成主线程延迟执行。
+                                      dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                                                     dispatch_get_main_queue(), ^() {
+                                          [self.extensionContext completeRequestReturningItems:@[ inputItem ]
+                                                                             completionHandler:^(BOOL res) {
+                                                                                 NSLog(@"Returned image %d > %d (%d)", [f byteSizeOriginal].intValue, (int)f.savedOutput.byteSize, (int)res);
+                                                                                 [[NSFileManager defaultManager] removeItemAtURL:tmpFilePathCopy error:nil];
+                                                                                 self->tempFilePath = nil;
+                                                                             }];
+                                      });
                                   } else {
                                       NSLog(@"Could not optimize, giving up");
-                                      [self cancel:self];
+                                      dispatch_async(dispatch_get_main_queue(), ^() {
+                                          [self cancel:self];
+                                      });
                                   }
                               });
                           }];
