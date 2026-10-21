@@ -1,0 +1,90 @@
+name: Build macOS App
+
+# 触发条件：推送到 main/master、PR、打 tag、或手动触发
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+# 同一分支的新提交取消上一次未完成的构建
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos:
+    name: 编译 macOS App
+    runs-on: macos-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: 检出代码（含全部 submodule）
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 显示 Xcode 版本
+        run: xcodebuild -version
+
+      # pngquant / svgcleaner / oxipng 等工具是通过 Xcode build rule 调用 cargo build 产出的，
+      # 没有 Rust 会直接 "error: cargo build failed"。
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # 所有 subproject 都自带 xcodeproj，默认要求开发团队签名，CI 上必然失败：
+      # "Signing for xxx requires a development team"。
+      # 因此统一关闭签名。
+      - name: 编译（禁用代码签名）
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project imageoptim/ImageOptim.xcodeproj \
+            -target Backend \
+            -configuration Debug \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build 2>&1 | tail -200
+
+      - name: 编译 App
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project imageoptim/ImageOptim.xcodeproj \
+            -scheme ImageOptim \
+            -configuration Debug \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build 2>&1 | tail -200
+
+      # BackendTests 是"应用托管型"测试包（TEST_HOST 指向 ImageOptim.app），
+      # 测试宿主必须能真正跑起来，所以这一步用 ad-hoc 签名（CODE_SIGN_IDENTITY="-"），
+      # 而不是像上面两步那样完全关掉签名。
+      - name: 运行 Backend 单元测试
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project imageoptim/ImageOptim.xcodeproj \
+            -scheme BackendTests \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=YES \
+            DEVELOPMENT_TEAM="" \
+            2>&1 | tail -200
+
+      - name: 列出产物
+        if: always()
+        run: |
+          find imageoptim/build -name "*.app" -maxdepth 4 -print 2>/dev/null || true

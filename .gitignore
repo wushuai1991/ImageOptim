@@ -1,6 +1,7 @@
 *.mode1v3
 *.pbxuser
-*.xcscheme
+# 共享 scheme 需要提交（CI 靠它跑 BackendTests），只忽略用户私有 scheme
+xcuserdata/
 *.xcuserdatad
 *.xcworkspace
 *.zip
@@ -162,6 +163,13 @@ svgo/build/
 svgo/node_modules/
 pngcrush/tmp/
 pngcrush/LICENSE
+
+# 各 subproject 的 Xcode 构建产物（跑一次 xcodebuild 就会生成）
+guetzli/build/
+libjpeg/build/
+oxipng/build/
+svgcleaner/build/
+zopfli-png/build/
 
 # Windows 版（.NET/WPF）
 win/ImageOptim/bin/

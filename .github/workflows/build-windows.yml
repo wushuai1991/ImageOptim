@@ -92,19 +92,30 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo } = context.repo;
-            const releases = await github.rest.repos.listReleases({ owner, repo, per_page: 100 });
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner, repo, per_page: 100
+            });
 
-            // 保留最新的 N 个 release，删除其余的 exe 附件
+            // 只在"确实带 .exe 附件"的 release 之间做保留计数。
+            // 原实现按全局顺序 releases.data.slice(keepCount) 截断，会把其他平台
+            // （例如以后的 macOS）的 release 也当成本次发布的旧版本，连带删掉它们的 .exe 附件。
+            const winReleases = releases.filter((r) =>
+              (r.assets || []).some((a) => a.name.endsWith('.exe'))
+            );
+
+            // 保留最新的 N 个 Windows release，删除其 exe 附件
             const keepCount = 2;
-            const releasesToDelete = releases.data.slice(keepCount);
+            const obsolete = winReleases.slice(keepCount);
 
-            for (const release of releasesToDelete) {
-              for (const asset of release.assets) {
-                if (asset.name.endsWith('.exe')) {
-                  await github.rest.repos.deleteReleaseAsset({
-                    owner, repo, asset_id: asset.id
-                  });
-                  console.log(`Deleted: ${asset.name} from release ${release.tag_name}`);
-                }
+            for (const release of obsolete) {
+              for (const asset of release.assets.filter((a) => a.name.endsWith('.exe'))) {
+                await github.rest.repos.deleteReleaseAsset({
+                  owner, repo, asset_id: asset.id
+                });
+                console.log(`Deleted: ${asset.name} from release ${release.tag_name}`);
               }
             }
+
+            console.log(
+              `Windows releases with exe assets: ${winReleases.length}, kept: ${Math.min(keepCount, winReleases.length)}`
+            );
