@@ -62,9 +62,22 @@ public sealed class Job
     private readonly Preferences _prefs;
     private bool _lossyConverted;
 
+    // 本次运行的取消源。每次 Start 新建一个，供 Worker 在 Stop 时立刻杀掉外部进程。
+    private CancellationTokenSource? _runCts;
+
     public event Action? StateChanged;
 
     public JobSnapshot Snapshot => _snapshot;
+
+    /// <summary>当前运行的取消令牌；未在运行时返回 <see cref="CancellationToken.None"/>。</summary>
+    public CancellationToken Cancellation
+    {
+        get
+        {
+            lock (_lock)
+                return _runCts?.Token ?? CancellationToken.None;
+        }
+    }
 
     public Job(string filePath, ResultsCache cache, Preferences prefs)
     {
@@ -148,14 +161,27 @@ public sealed class Job
 
     public bool IsBusy { get { lock (_lock) return IsBusyLocked(); } }
 
-    /// <summary>启动优化：读取文件、构建工具链并执行（同步，由 JobQueue 负责并发调度）。</summary>
-    public void Start()
+    /// <summary>
+    /// 启动优化：读取文件、构建工具链并执行（同步，由 JobQueue 负责并发调度）。
+    /// </summary>
+    /// <param name="processBudget">
+    /// 全局外部进程预算。非 null 时本文件内各工具并发执行但共享这份额度；
+    /// 为 null 时退化为不限制（仅测试用）。
+    /// </param>
+    public void Start(SemaphoreSlim? processBudget = null)
     {
-        RunAsync();
+        Run(processBudget);
     }
 
-    private void RunAsync()
+    /// <summary>同步执行整个优化流程。名字不带 Async：这里没有任何 await，调用方需自己安排线程。</summary>
+    private void Run(SemaphoreSlim? processBudget)
     {
+        var runCts = new CancellationTokenSource();
+        lock (_lock)
+        {
+            _runCts = runCts;
+        }
+
         try
         {
             SetStatus("progress", 3, "检查文件");
@@ -220,40 +246,47 @@ public sealed class Job
                 _workers.AddRange(workers);
             }
 
-            // 依次运行各工具，每个产出结果立即比较采纳。
-            // 注意：不能无脑删除 tempPath——如果这次产出被 SetFileOptimized 采纳，
-            // _wipInput.Path 就指向 tempPath，删了会导致后续 SaveResultLocked 读不到文件。
-            // 采纳链路里，前一个被采纳的临时文件会被 SetFileOptimized 自动清理；
-            // 未被采纳的临时文件由此处 finally 兜底删除。
-            foreach (var w in workers)
+            // 两阶段执行，与 macOS 的 runFirst / runLater 一致：
+            // 阶段一：会产生「非优化性修改」的工具（有损压缩、剥离元数据）串行先跑，
+            //         每个都基于"当前最优结果"，因此效果可叠加。
+            // 阶段二：其余无损工具并行竞争，输入固定为阶段一结束时的最优结果。
+            var firstRun = workers.Where(w => w.MakesNonOptimizingModifications).ToList();
+            var runLater = workers.Where(w => !w.MakesNonOptimizingModifications).ToList();
+
+            foreach (var w in firstRun)
             {
-                if (IsStopping()) break;
-
-                var name = w.GetType().Name.Replace("Worker", "");
-                SetStatus("progress", 4, $"开始 {name}");
-
-                string tempPath = w.NewTempPath();
-                try
-                {
-                    w.OptimizeFile(input, tempPath);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"{name} 失败: {ex.Message}");
-                }
-                finally
-                {
-                    // 仅当此次临时文件未被采纳（即不是当前最优结果）时才删除
-                    bool adopted;
-                    lock (_lock)
-                    {
-                        adopted = _wipInput != null &&
-                                  string.Equals(_wipInput.Path, tempPath, StringComparison.OrdinalIgnoreCase);
-                    }
-                    if (!adopted)
-                        TryDelete(tempPath);
-                }
+                if (IsStopping())
+                    break;
+                RunWorkerSerially(w, CurrentBestInput(input), processBudget);
             }
+
+            // 阶段二的输入只取一次：避免同阶段内的工人互相看到对方结果，
+            // 让结果只取决于工具集合而不取决于调度顺序。
+            var chainedInput = CurrentBestInput(input);
+
+            var running = new List<Task>(runLater.Count);
+            foreach (var w in runLater)
+            {
+                if (IsStopping())
+                    break;
+
+                var worker = w;
+                running.Add(Task.Run(async () =>
+                {
+                    // 等预算用异步，避免一堆排队任务各占一个线程池线程
+                    if (processBudget != null)
+                        await processBudget.WaitAsync().ConfigureAwait(false);
+                    try
+                    {
+                        RunOneWorker(worker, chainedInput);
+                    }
+                    finally
+                    {
+                        processBudget?.Release();
+                    }
+                }));
+            }
+            Task.WaitAll(running.ToArray());
 
             lock (_lock)
             {
@@ -262,7 +295,9 @@ public sealed class Job
 
             if (IsStopping())
             {
-                Publish();
+                // 被停止时不保存，并清理已采纳的临时文件，避免 %TEMP% 堆积
+                Cleanup();
+                SetStatus("wait", 1, "已停止");
                 return;
             }
 
@@ -274,7 +309,77 @@ public sealed class Job
         }
         finally
         {
+            lock (_lock)
+            {
+                _runCts = null;
+            }
             Publish();
+        }
+    }
+
+    /// <summary>当前最优输入（可能已被前一个工具采纳为更小的结果）。</summary>
+    private ImageFile CurrentBestInput(ImageFile fallback)
+    {
+        lock (_lock)
+        {
+            return _wipInput ?? fallback;
+        }
+    }
+
+    /// <summary>
+    /// 串行跑一个"会产生非优化性修改"的工具（阶段一）。
+    /// 这类工具有副作用（有损压缩 / 剥离元数据），必须一个接一个跑，
+    /// 后者才能基于前者的结果继续压缩。
+    /// </summary>
+    private void RunWorkerSerially(Worker worker, ImageFile input, SemaphoreSlim? processBudget)
+    {
+        // 这里调用方本身跑在专职线程上，同步等预算是可以接受的
+        if (processBudget != null)
+            processBudget.Wait();
+        try
+        {
+            RunOneWorker(worker, input);
+        }
+        finally
+        {
+            processBudget?.Release();
+        }
+    }
+
+    /// <summary>
+    /// 跑单个工具并把结果交给 Job 比较采纳。
+    /// 注意：不能无脑删除 tempPath——如果这次产出被 SetFileOptimized 采纳，
+    /// _wipInput.Path 就指向 tempPath，删了会导致后续 SaveResultLocked 读不到文件。
+    /// 被后续更小结果顶替时，SetFileOptimized 会删掉旧的；未被采纳的由此处兜底删除。
+    /// </summary>
+    private void RunOneWorker(Worker worker, ImageFile input)
+    {
+        if (IsStopping())
+            return;
+
+        var name = worker.GetType().Name.Replace("Worker", "");
+        SetStatus("progress", 4, $"开始 {name}");
+
+        string tempPath = worker.NewTempPath();
+        try
+        {
+            worker.OptimizeFile(input, tempPath);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"{name} 失败: {ex.Message}");
+        }
+        finally
+        {
+            // 仅当此次临时文件未被采纳（即不是当前最优结果）时才删除
+            bool adopted;
+            lock (_lock)
+            {
+                adopted = _wipInput != null &&
+                          string.Equals(_wipInput.Path, tempPath, StringComparison.OrdinalIgnoreCase);
+            }
+            if (!adopted)
+                TryDelete(tempPath);
         }
     }
 
@@ -514,10 +619,9 @@ public sealed class Job
         }
     }
 
-    /// <summary>用临时优化结果替换原文件，并保留回退备份。</summary>
     /// <summary>
     /// 获取（或创建）源目录下的输出文件夹，用于「不剔除原文件」模式。
-    /// 同一源目录共享同一个输出文件夹；若同名文件夹已存在则追加 _1、_2 … 数字后缀。
+    /// 同一源目录共享同一个输出文件夹，已存在则直接复用（同名文件覆盖）。
     /// </summary>
     private static string GetOutputDirectory(string sourceDir)
     {
@@ -526,24 +630,41 @@ public sealed class Job
             if (_outputDirCache.TryGetValue(sourceDir, out var cached))
                 return cached;
 
+            // 固定复用同名输出目录。旧实现发现 ImageOptim 已存在就新建 ImageOptim_1/_2/…，
+            // 每运行一次就多一个目录，且静态缓存跨会话不失效。
             string candidate = System.IO.Path.Combine(sourceDir, "ImageOptim");
             if (!Directory.Exists(candidate))
-            {
                 Directory.CreateDirectory(candidate);
-                _outputDirCache[sourceDir] = candidate;
-                return candidate;
-            }
 
-            int i = 1;
-            while (Directory.Exists(System.IO.Path.Combine(sourceDir, $"ImageOptim_{i}")))
-                i++;
-            candidate = System.IO.Path.Combine(sourceDir, $"ImageOptim_{i}");
-            Directory.CreateDirectory(candidate);
             _outputDirCache[sourceDir] = candidate;
             return candidate;
         }
     }
 
+    /// <summary>
+    /// 用 <paramref name="source"/> 的内容原子替换 <paramref name="destination"/>。
+    /// 同卷时 <see cref="File.Move(string, string, bool)"/> 走 MoveFileEx(MOVEFILE_REPLACE_EXISTING)，
+    /// 是元数据级原子操作，不会出现"复制到一半崩溃导致原图被截断"的窗口；
+    /// 跨卷时 .NET 内部会退化为复制+删除，行为与原实现等价。
+    /// </summary>
+    private static void ReplaceFile(string source, string destination)
+    {
+        try
+        {
+            File.Move(source, destination, overwrite: true);
+            return;
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+        {
+            // 兜底：极端情况下（如跨卷、目标被占用）退回复制覆盖
+            Debug.WriteLine($"原子替换失败，回退为复制覆盖: {ex.Message}");
+        }
+
+        File.Copy(source, destination, overwrite: true);
+        TryDelete(source);
+    }
+
+    /// <summary>用临时优化结果替换原文件（原子替换），并保留回退备份。</summary>
     private bool SaveResultLocked()
     {
         ImageFile? fileToSave;
@@ -571,7 +692,7 @@ public sealed class Job
                 // 不剔除原文件：保存到新文件夹，文件名保持不变，原文件不动（无需备份/回退）
                 var outputDir = GetOutputDirectory(dir);
                 var outputPath = System.IO.Path.Combine(outputDir, System.IO.Path.GetFileName(FilePath));
-                File.Copy(fileToSave.Path, outputPath, overwrite: true);
+                ReplaceFile(fileToSave.Path, outputPath);
 
                 lock (_lock)
                 {
@@ -583,8 +704,8 @@ public sealed class Job
 
             // 剔除原文件：覆盖原文件，保持名称不变（需备份以便回退）
 
-            // 备份原文件到不与用户已有 .bak 冲突的路径
-            string backupPath = ResolveUniqueBackupPath(dir, FilePath);
+            // 备份原文件到应用私有目录（不再往用户图片目录里丢 .bak）
+            string backupPath = BackupStore.NewBackupPath(FilePath);
             File.Copy(FilePath, backupPath, overwrite: false);
             lock (_lock)
             {
@@ -605,8 +726,8 @@ public sealed class Job
             }
             catch { }
 
-            // 用优化结果覆盖原文件
-            File.Copy(fileToSave.Path, FilePath, overwrite: true);
+            // 用优化结果原子替换原文件
+            ReplaceFile(fileToSave.Path, FilePath);
 
             if (preserveDates)
             {
@@ -642,24 +763,6 @@ public sealed class Job
         }
     }
 
-    /// <summary>为备份文件寻找不冲突的路径，避免误删用户已有的同名 .bak。</summary>
-    private static string ResolveUniqueBackupPath(string dir, string filePath)
-    {
-        string baseName = System.IO.Path.GetFileNameWithoutExtension(filePath);
-        string ext = System.IO.Path.GetExtension(filePath);
-        string candidate = System.IO.Path.Combine(dir, "~" + baseName + ".imageoptim.bak" + ext);
-        int i = 1;
-        while (File.Exists(candidate))
-        {
-            candidate = System.IO.Path.Combine(dir, "~" + baseName + ".imageoptim.bak." + i + ext);
-            i++;
-            if (i > 1000) break; // 安全保护
-        }
-        return candidate;
-    }
-
-    private bool _revertFileObjExists() => _revertFile != null;
-
     public bool CanRevert { get { lock (_lock) return CanRevertLocked(); } }
 
     /// <summary>回退到优化前的原始文件。</summary>
@@ -686,7 +789,7 @@ public sealed class Job
             }
             catch { }
 
-            File.Copy(revertFile.Path, FilePath, overwrite: true);
+            ReplaceFile(revertFile.Path, FilePath);
             if (_prefs.PreserveDates)
             {
                 try
@@ -708,6 +811,10 @@ public sealed class Job
                 _bestTools.Clear();
                 _isFailed = false; // 回退后清除失败状态，允许后续再次优化
             }
+
+            // 备份已完成使命，清掉避免积压
+            BackupStore.Remove(revertFile.Path);
+
             SetStatus("noopt", 6, "已还原到原始文件");
             return true;
         }
@@ -722,17 +829,30 @@ public sealed class Job
 
     public bool Stop()
     {
+        CancellationTokenSource? cts;
         lock (_lock)
         {
-            if (!_isDone && _workers.Count > 0)
-            {
-                _stopping = true;
-                _workers.Clear();
-                Publish();
-                return true;
-            }
+            if (_isDone || _workers.Count == 0)
+                return false;
+
+            _stopping = true;
+            _workers.Clear();
+            cts = _runCts;
         }
-        return false;
+
+        // 取消必须放在锁外：Cancel 会同步执行已注册的回调（杀掉外部进程），
+        // 持锁调用会让 Stop() 阻塞到进程被杀死为止。
+        try
+        {
+            cts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // 运行已结束
+        }
+
+        Publish();
+        return true;
     }
 
     public void Cleanup()

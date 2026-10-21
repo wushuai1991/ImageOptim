@@ -15,6 +15,9 @@ public partial class MainWindow : Window
     private readonly StatusBarCalculator _statusCalc = new();
     private readonly DispatcherTimer _statusTimer;
 
+    // 状态栏只在"确实有变化"时重算，空闲时定时器不做任何遍历
+    private bool _statusDirty = true;
+
     public ObservableCollection<JobItem> Items => _files.Items;
 
     public MainWindow()
@@ -32,9 +35,17 @@ public partial class MainWindow : Window
         _queue.BusyStateChanged += () => Dispatcher.BeginInvoke(UpdateStatusBar);
         _queue.QueueFinished += () => Dispatcher.BeginInvoke(OnQueueFinished);
 
-        // 状态栏定时刷新（500ms 足够平滑，避免 200ms 高频全量重算）
+        // 列表成员或任一条目状态变化时打脏标记（事件本身已在 UI 线程聚合）
+        _files.ItemsChanged += () => _statusDirty = true;
+
+        // 状态栏定时刷新（500ms 足够平滑）。空闲时 _statusDirty 为 false，直接跳过遍历。
         _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
-        _statusTimer.Tick += (_, _) => UpdateStatusBar();
+        _statusTimer.Tick += (_, _) =>
+        {
+            if (!_statusDirty)
+                return;
+            UpdateStatusBar();
+        };
         _statusTimer.Start();
 
         UpdateStatusBar();
@@ -53,35 +64,50 @@ public partial class MainWindow : Window
         if (e.Data.GetDataPresent(DataFormats.FileDrop))
         {
             var paths = (string[])e.Data.GetData(DataFormats.FileDrop);
-            if (await ConfirmAddPathsAsync(paths))
+            var (proceed, preScanned) = await ConfirmAddPathsAsync(paths);
+            if (!proceed)
+                return;
+
+            if (preScanned != null)
+                _files.AddScannedFiles(preScanned.Files);
+            else
                 _files.AddPaths(paths);
         }
     }
 
-    private async Task<bool> ConfirmAddPathsAsync(string[] paths)
+    /// <summary>
+    /// 添加前的扫描与确认。
+    /// 返回的 PreScanned 在"未超阈值"时非空，可直接复用来添加，
+    /// 省掉正式添加时的第二遍目录枚举（旧实现是统计一遍 + 扫描一遍）。
+    /// </summary>
+    private async Task<(bool Proceed, JobQueue.ScanResult? PreScanned)> ConfirmAddPathsAsync(string[] paths)
     {
         int threshold = _prefs.AddFilesThreshold;
-        // 统计在后台线程执行，避免拖入大目录时在 UI 线程递归遍历导致卡顿
-        int count;
+
+        // 扫描在后台线程执行，避免拖入大目录时在 UI 线程递归遍历导致卡顿
+        JobQueue.ScanResult scan;
         try
         {
-            count = await Task.Run(() => _queue.CountFiles(paths, threshold));
+            scan = await Task.Run(() => _queue.Scan(paths, threshold));
         }
         catch
         {
-            count = 0; // 统计失败则不拦截，直接添加
+            return (true, null); // 扫描失败不拦截，退回原有的异步扫描路径
         }
-        if (count > threshold)
+
+        if (scan.Files.Count > threshold)
         {
             var result = MessageBox.Show(
                 this,
-                $"本次将添加 {count} 个文件，已超过提醒阈值（{threshold}）。是否继续？",
+                $"本次将添加超过 {threshold} 个文件（已扫描到 {scan.Files.Count} 个）。是否继续？",
                 "确认添加文件",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);
-            return result == MessageBoxResult.Yes;
+            return (result == MessageBoxResult.Yes, null);
         }
-        return true;
+
+        // Truncated（超上限或目录异常）时结果不完整，交给正式扫描重来
+        return (true, scan.Truncated ? null : scan);
     }
 
     private async void BrowseFiles_Click(object sender, RoutedEventArgs e)
@@ -94,7 +120,13 @@ public partial class MainWindow : Window
         };
         if (dialog.ShowDialog() == true)
         {
-            if (await ConfirmAddPathsAsync(dialog.FileNames))
+            var (proceed, preScanned) = await ConfirmAddPathsAsync(dialog.FileNames);
+            if (!proceed)
+                return;
+
+            if (preScanned != null)
+                _files.AddScannedFiles(preScanned.Files);
+            else
                 _files.AddPaths(dialog.FileNames);
         }
     }
@@ -135,6 +167,7 @@ public partial class MainWindow : Window
 
     private void UpdateStatusBar()
     {
+        _statusDirty = false;
         if (StatusText != null)
             StatusText.Text = _statusCalc.Calculate(_files.Items, _prefs, quitWhenDone: false);
     }

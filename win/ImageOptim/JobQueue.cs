@@ -13,6 +13,10 @@ public sealed class JobQueue
     private readonly Preferences _prefs;
     private readonly ResultsCache _cache;
 
+    // 全局外部进程预算：整个应用同一时刻最多跑这么多外部优化进程。
+    // 单个文件内的多个工具可以并行，但共享这份额度，所以进程总数不会爆炸。
+    private readonly SemaphoreSlim _processBudget;
+
     private readonly object _lock = new();
     private int _activeCount;
     private bool _isBusy;
@@ -28,6 +32,9 @@ public sealed class JobQueue
         _cache = cache;
         _fileSemaphore = new SemaphoreSlim(Math.Max(1, prefs.RunConcurrentFiles));
         _dirSemaphore = new SemaphoreSlim(Math.Max(1, prefs.RunConcurrentDirscans));
+        // 与文件并发数同口径：单文件时能吃满这些额度并行跑工具，
+        // 多文件时总额度不变，进程数上限与旧实现（文件并发 × 1 个工具）一致。
+        _processBudget = new SemaphoreSlim(Math.Max(1, prefs.RunConcurrentFiles));
     }
 
     /// <summary>添加一个文件优化任务。</summary>
@@ -45,10 +52,17 @@ public sealed class JobQueue
         Task.Run(async () =>
         {
             BeginActive();
-            await _fileSemaphore.WaitAsync();
+            // 等信号量是异步的，不占线程
+            await _fileSemaphore.WaitAsync().ConfigureAwait(false);
             try
             {
-                job.Start();
+                // job.Start() 是长时间同步阻塞（内部会跑多个外部进程，彼此并行但受
+                // _processBudget 约束）。直接在当前线程池线程上跑，并发数一调大就会把池子占满、
+                // 饿死其他排队任务；用 LongRunning 让它跑在专用线程上。
+                var budget = _processBudget;
+                await Task.Factory.StartNew(() => job.Start(budget), CancellationToken.None,
+                                            TaskCreationOptions.LongRunning, TaskScheduler.Default)
+                          .ConfigureAwait(false);
             }
             finally
             {
@@ -78,55 +92,88 @@ public sealed class JobQueue
         });
     }
 
-    /// <summary>统计单次添加的图片文件总数（含目录递归扫描，遵循与扫描一致的过滤规则），超过 stopAt 后提前停止以加速。</summary>
-    public int CountFiles(IEnumerable<string> paths, int stopAt)
+    /// <summary>
+    /// 一次扫描的结果。<paramref name="Truncated"/> 为 true 表示列表不可信
+    /// （超过上限提前停止，或某个子目录访问异常），调用方不应复用它。
+    /// </summary>
+    public sealed record ScanResult(List<string> Files, bool Truncated);
+
+    /// <summary>
+    /// 扫描路径（文件或目录），最多收集 stopAt+1 个文件即可判断是否超阈值。
+    /// 旧实现是"先完整统计一遍再正式扫一遍"，同一个目录被枚举两次；
+    /// 现在把结果直接返回，未截断时调用方可直接复用，只有大目录才需要二次扫描。
+    /// </summary>
+    public ScanResult Scan(IEnumerable<string> paths, int stopAt)
     {
         var extensions = _prefs.EnabledExtensions();
-        int count = 0;
+        var result = new List<string>();
+        bool truncated = false;
+
         foreach (var p in paths)
         {
-            if (count > stopAt)
+            if (truncated)
                 break;
 
             if (Directory.Exists(p))
-                CountDirectoryFiles(p, extensions, ref count, stopAt);
+            {
+                try
+                {
+                    ScanDirectoryInto(p, extensions, result, stopAt, ref truncated);
+                }
+                catch
+                {
+                    // 目录不可访问：已有结果不完整，标记为不可复用
+                    truncated = true;
+                }
+            }
             else if (File.Exists(p))
             {
-                var ext = System.IO.Path.GetExtension(p).TrimStart('.');
-                if (extensions.Contains(ext))
-                    count++;
+                if (extensions.Contains(ExtensionOf(p)))
+                {
+                    result.Add(p);
+                    if (result.Count > stopAt)
+                        truncated = true;
+                }
             }
         }
-        return count;
+
+        return new ScanResult(result, truncated);
     }
 
-    private static void CountDirectoryFiles(string path, HashSet<string> extensions, ref int count, int stopAt)
+    private static void ScanDirectoryInto(string path, HashSet<string> extensions, List<string> result, int stopAt, ref bool truncated)
     {
         foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.TopDirectoryOnly))
         {
-            if (count > stopAt)
-                return;
-            var ext = System.IO.Path.GetExtension(file).TrimStart('.');
-            if (extensions.Contains(ext))
-                count++;
+            if (extensions.Contains(ExtensionOf(file)))
+            {
+                result.Add(file);
+                if (result.Count > stopAt)
+                {
+                    truncated = true;
+                    return;
+                }
+            }
         }
 
         foreach (var dir in Directory.EnumerateDirectories(path, "*", SearchOption.TopDirectoryOnly))
         {
-            if (count > stopAt)
+            if (truncated)
                 return;
             if (SkipDirectories.Contains(System.IO.Path.GetFileName(dir)))
                 continue;
             try
             {
-                CountDirectoryFiles(dir, extensions, ref count, stopAt);
+                ScanDirectoryInto(dir, extensions, result, stopAt, ref truncated);
             }
             catch
             {
                 // 忽略单个子目录访问异常
+                truncated = true;
             }
         }
     }
+
+    private static string ExtensionOf(string path) => System.IO.Path.GetExtension(path).TrimStart('.');
 
     // 仅跳过版本控制与依赖目录（几乎不可能包含用户要优化的图片，且文件量可能极大）。
     // 不再跳过 build/dist/bin/obj/Tools 等目录，保证「文件夹中所有图片」语义。
@@ -139,40 +186,17 @@ public sealed class JobQueue
     {
         var extensions = _prefs.EnabledExtensions();
         var result = new List<string>();
+        bool truncated = false;
         try
         {
-            ScanDirectoryRecursive(path, extensions, result);
+            // 不限量（stopAt = MaxValue）复用同一套遍历逻辑，避免两份递归实现漂移
+            ScanDirectoryInto(path, extensions, result, int.MaxValue, ref truncated);
         }
         catch
         {
             // 忽略扫描异常
         }
         return result;
-    }
-
-    private static void ScanDirectoryRecursive(string path, HashSet<string> extensions, List<string> result)
-    {
-        foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.TopDirectoryOnly))
-        {
-            var ext = System.IO.Path.GetExtension(file).TrimStart('.');
-            if (extensions.Contains(ext))
-                result.Add(file);
-        }
-
-        foreach (var dir in Directory.EnumerateDirectories(path, "*", SearchOption.TopDirectoryOnly))
-        {
-            var name = System.IO.Path.GetFileName(dir);
-            if (SkipDirectories.Contains(name))
-                continue;
-            try
-            {
-                ScanDirectoryRecursive(dir, extensions, result);
-            }
-            catch
-            {
-                // 忽略单个子目录访问异常
-            }
-        }
     }
 
     private void OnJobStateChanged()

@@ -16,7 +16,10 @@ public sealed class FilesController
     private readonly HashSet<string> _seenPaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, JobItem> _jobByPath = new(StringComparer.OrdinalIgnoreCase);
 
-    public ObservableCollection<JobItem> Items { get; } = new();
+    public BulkObservableCollection<JobItem> Items { get; } = new();
+
+    /// <summary>列表成员或任一条目状态发生变化，用于驱动状态栏按需刷新。</summary>
+    public event Action? ItemsChanged;
 
     private bool _isStoppable;
     public bool IsStoppable
@@ -31,6 +34,7 @@ public sealed class FilesController
         _prefs = prefs;
         _queue.BusyStateChanged += () => Application.Current.Dispatcher.BeginInvoke(UpdateStoppableState);
         _queue.QueueFinished += () => Application.Current.Dispatcher.BeginInvoke(UpdateStoppableState);
+        Items.CollectionChanged += (_, _) => ItemsChanged?.Invoke();
     }
 
     /// <summary>添加一批路径（文件或目录）。分类在后台线程完成，避免 UI 线程做文件系统 IO。</summary>
@@ -59,6 +63,9 @@ public sealed class FilesController
         });
     }
 
+    /// <summary>添加一批已扫描好的文件路径（UI 线程调用；不再重复枚举目录）。</summary>
+    public void AddScannedFiles(IReadOnlyList<string> filePaths) => AddFilePaths(filePaths);
+
     /// <summary>批量创建并添加文件条目（UI 线程调用）。</summary>
     private void AddFilePaths(IReadOnlyList<string> filePaths)
     {
@@ -72,8 +79,7 @@ public sealed class FilesController
         }
         if (newItems.Count > 0)
         {
-            foreach (var item in newItems)
-                Items.Add(item);
+            Items.AddRange(newItems);
             UpdateStoppableState();
         }
     }
@@ -92,8 +98,7 @@ public sealed class FilesController
                     if (item != null)
                         batch.Add(item);
                 }
-                foreach (var item in batch)
-                    Items.Add(item);
+                Items.AddRange(batch);
                 if (batch.Count > 0)
                     UpdateStoppableState();
             });
@@ -114,6 +119,8 @@ public sealed class FilesController
 
         var job = _queue.AddFile(full);
         var item = new JobItem(job);
+        // 条目状态变化（在 UI 线程触发）时通知外部，供状态栏按需重算
+        item.PropertyChanged += (_, _) => ItemsChanged?.Invoke();
         _jobByPath[full] = item;
         return item;
     }
@@ -152,10 +159,10 @@ public sealed class FilesController
         foreach (var item in toRemove)
         {
             item.Detach();
-            Items.Remove(item);
             _seenPaths.Remove(item.FilePath);
             _jobByPath.Remove(item.FilePath);
         }
+        Items.RemoveRange(toRemove);
     }
 
     public bool CanClearComplete => Items.Any(i => i.IsDone);

@@ -105,6 +105,24 @@ public abstract class Worker
             return -1;
         }
 
+        // 监听取消：Job 被停止时立即杀掉工具进程，而不是等它自然结束
+        // （Guetzli 的兜底超时是 30 分钟，不中断的话「停止」毫无意义）
+        using var cancellationRegistration = Job.Cancellation.Register(static (object? state) =>
+        {
+            if (state is not Process target)
+                return;
+
+            try
+            {
+                if (!target.HasExited)
+                    target.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // 进程可能已退出或被系统回收
+            }
+        }, process);
+
         // 读取输出（异步避免阻塞管道）
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();

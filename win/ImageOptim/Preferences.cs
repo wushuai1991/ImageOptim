@@ -62,8 +62,10 @@ public sealed class Preferences
     public bool RemoveOriginal { get; set; } = true;
 
     // 并发与进程选项
-    // 默认并发文件数限制为 4：每个文件内部还会串行运行多个外部进程，
-    // 若按 CPU 逻辑核心数（如 32 核）并发，会同时启动几十个外部进程导致系统卡顿。
+    // RunConcurrentFiles 同时是"并发文件数"和"全局外部进程预算"：
+    //   * 单文件时，该文件的多个工具可以并行，最多同时跑这么多进程（能吃满多核）；
+    //   * 多文件时，所有文件共享这份额度，进程总数上限与旧实现一致，不会因为
+    //     按 CPU 逻辑核心数（如 32 核）并发而同时启动几十个外部进程拖垮系统。
     public int RunConcurrentFiles { get; set; } = Math.Min(4, Environment.ProcessorCount);
     public int RunConcurrentDirscans { get; set; } = Math.Max(1, (int)Math.Ceiling(Environment.ProcessorCount / 3.9));
     public int RunConcurrentFileops { get; set; } = 2;

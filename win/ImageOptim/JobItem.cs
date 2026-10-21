@@ -11,8 +11,11 @@ namespace ImageOptim;
 public sealed class JobItem : INotifyPropertyChanged
 {
     private readonly Job _job;
-    private JobSnapshot _snapshot;
+    private volatile JobSnapshot _snapshot;
     private readonly Action _stateChangedHandler;
+
+    // 0 = 没有排队的 UI 通知，1 = 已排一条。用来把同一文件的一串状态变化合并成一次重绑。
+    private int _notifyPending;
 
     public Job Job => _job;
 
@@ -24,13 +27,27 @@ public sealed class JobItem : INotifyPropertyChanged
         _stateChangedHandler = () =>
         {
             _snapshot = job.Snapshot;
+
+            // 合并：同一文件在 UI 线程处理之前又变了多次，也只需要一次重绑。
+            // 1 万个文件 × 每文件 4~8 次状态变化，不合并会产生数万条 Dispatcher 队列项。
+            if (Interlocked.Exchange(ref _notifyPending, 1) == 1)
+                return;
+
             // 状态变化来自后台线程，需切回 UI 线程通知。
             // 使用异步 BeginInvoke（而非同步 Invoke），避免后台线程等待 UI 线程，
             // 与 UI 线程访问 Job 锁形成死锁。
-            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher == null)
             {
+                Interlocked.Exchange(ref _notifyPending, 0);
+                return;
+            }
+
+            dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() =>
+            {
+                Interlocked.Exchange(ref _notifyPending, 0);
                 OnPropertyChanged(string.Empty);
-            });
+            }));
         };
         job.StateChanged += _stateChangedHandler;
     }
