@@ -39,13 +39,40 @@ jobs:
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # Xcode 26 的 ScanDependencies 会在 subproject 的 legacy download target
+      # （用 make 下载 zlib/libpng 源码）落盘之前就扫描源文件，全新 checkout 下必然报
+      # "Build input file cannot be found: .../zlib/trees.c"。
+      # 先预热几次把源码下载齐（失败属预期），正式编译步骤再做判定。
+      - name: 预热 subproject 源码
+        run: |
+          for i in 1 2 3; do
+            if xcodebuild \
+                 -project imageoptim/ImageOptim.xcodeproj \
+                 -target Backend \
+                 -configuration Debug \
+                 ONLY_ACTIVE_ARCH=YES \
+                 CODE_SIGNING_ALLOWED=NO \
+                 CODE_SIGNING_REQUIRED=NO \
+                 CODE_SIGN_IDENTITY="" \
+                 DEVELOPMENT_TEAM="" \
+                 build > "/tmp/prewarm-$i.log" 2>&1; then
+              echo "预热第 $i 次已成功"
+              exit 0
+            fi
+            echo "预热第 $i 次未完成（下载尚未落盘），重试"
+            grep -E "error:" "/tmp/prewarm-$i.log" | head -5 || true
+          done
+          echo "预热 3 次仍未成功，由正式编译步骤报错"
+
       # 所有 subproject 都自带 xcodeproj，默认要求开发团队签名，CI 上必然失败：
       # "Signing for xxx requires a development team"。
       # 因此统一关闭签名。
       - name: 编译（禁用代码签名）
         run: |
           set -o pipefail
+          # -quiet：只输出告警与错误，避免 subproject 的 env 回显把真正的 error 挤出 tail
           xcodebuild \
+            -quiet \
             -project imageoptim/ImageOptim.xcodeproj \
             -target Backend \
             -configuration Debug \
@@ -60,6 +87,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild \
+            -quiet \
             -project imageoptim/ImageOptim.xcodeproj \
             -scheme ImageOptim \
             -configuration Debug \

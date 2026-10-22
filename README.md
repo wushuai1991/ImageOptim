@@ -16,6 +16,8 @@ cd ImageOptim
 
 To get started, open `imageoptim/ImageOptim.xcodeproj`. It will automatically download and build all subprojects when run in Xcode.
 
+If the first build fails with `Build input file cannot be found: .../zlib/trees.c` (or other subproject sources), just build again: Xcode 26 scans dependencies before the subproject download targets have produced the sources.
+
 In case of build errors, these sometimes help:
 
 ```sh
