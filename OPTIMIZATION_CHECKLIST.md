@@ -10,11 +10,11 @@
 | --- | --- | --- | --- | --- |
 | P0 正确性/稳定性 | 9 | 0 | 0 | 9 |
 | P1 性能 | 10 | 0 | 1 | 9 |
-| P2 工程质量 | 6 | 1 | 0 | 5 |
+| P2 工程质量 | 6 | 0 | 1 | 5 |
 | P3 构建/供应链 | 5 | 0 | 0 | 5 |
-| **合计** | **30** | **1** | **1** | **28** |
+| **合计** | **30** | **0** | **2** | **28** |
 
-完成率：**93%**（28 / 30，另有 1 项部分完成）
+完成率：**93%**（28 / 30，另有 2 项部分完成）
 
 ## 清单索引
 
@@ -39,7 +39,7 @@
 | OPT-17 | P1 | Windows | 拖入目录被扫两遍 | M | ✅ |
 | OPT-18 | P1 | Windows | 线程池线程被长期占用 | S | ✅ |
 | OPT-30 | P1 | Windows | 有损与无损工具未串联 | M | ✅ |
-| OPT-19 | P2 | 双端 | 双端算法漂移风险 | L | ⬜ |
+| OPT-19 | P2 | 双端 | 双端算法漂移风险 | L | 🟡 |
 | OPT-20 | P2 | 双端 | MD5 弃用需 pragma 压制 | S | ✅ |
 | OPT-21 | P2 | macOS | 结果缓存只增不删 | S | ✅ |
 | OPT-22 | P2 | macOS | 日志宏悬垂 else | S | ✅ |
@@ -235,13 +235,19 @@
 
 ## P2 工程质量
 
-### ⬜ OPT-19 双端算法漂移风险
+### 🟡 OPT-19 双端算法漂移风险
 
-- [ ] 待完成
-- **位置**：`imageoptim/Backend/Job.m` ↔ `win/ImageOptim/Job.cs`；`FilesController.m` ↔ `FilesController.cs`；`Worker.m` ↔ `Worker.cs`
-- **问题**：同一套逻辑的两份手写实现，"工具链构建规则 / 参数 / settingsIdentifier" 无共享约束。已出现实际漂移：OPT-10（Windows 修了 macOS 没修）、OPT-13（执行模型不同）。
-- **方案**：把工具链规则抽成数据文件（JSON/表）由两端读取；或至少补一份对照表 + 一致性测试（同输入断言输出字节数一致）。
-- **验收**：存在一份可执行的双端一致性验证（脚本或测试）。
+- [ ] 待完成（Windows 侧已完成，macOS 侧待接）
+  - [x] 新增双端契约 `shared/toolchain.json`，**内容以 Windows 实现为基准**
+  - [x] Windows 侧改为契约驱动：`Toolchain.Build()` 读取内嵌资源（`<EmbeddedResource LogicalName="toolchain.json">`），`Job.BuildWorkers` 不再硬编码；旧实现已删除
+  - [x] **等价性验证**：临时对比程序在 2 万随机偏好组合 × 4 文件类型 = 8 万组上比对"旧硬编码"与"契约驱动"的工具链签名（类型 + `SettingsIdentifier` + `MakesNonOptimizingModifications`），**0 差异**。过程中抓出并修正一个真 bug：GIF 的 `unless`（else 分支）起初用实时 `lossyConverted` 求值，有损工具加入后标志翻转导致 else 也命中，已改为用建链前状态求值
+  - [x] **把 macOS 的已知差异写进契约**：新增 `platformDeviations`，逐条记录 macOS 的 level 递增、基于 level 的工具抑制（level<4+zopfli 跳 pngout、level<2+oxipng 跳 pngcrush）、Guetzli 额外要求 `!hasBeenRunBefore`、有损工具直接进 runFirst、以及 macOS 无 jpegli。这些是**有意保留**的差异，接契约时不能顺手抹平
+  - [x] **一致性校验脚本 `scripts/check-toolchain.py`**：校验契约结构、条件词汇、偏好项名是否真实存在于 `Preferences.cs`、每个 id 是否在 Windows `Toolchain.Create()` 登记、macOS 是否有对应 Worker 类、以及实现里多出来的 id。已做负向测试（注入假工具 → 3 个 ERROR、退出码 1）
+  - [x] **接入两条 CI**：`build-macos.yml` 与 `build-windows.yml` 各加一步「校验工具链契约」
+  - [ ] **剩余（macOS 侧读契约）**：`Job.m` 的 `switch (input->fileType)` 改为读同一份 JSON，并把 `shared/toolchain.json` 加进 app target 的 Copy Bundle Resources。**未做原因**：macOS 若严格按 Windows 契约建链会丢掉上面那几条调优，属行为回归，需要先定"契约 + 平台偏差"的分层方式；且改动需真机构建验证
+  - [ ] **剩余（长期守护）**：Windows 建 xunit 测试工程、macOS 在 `BackendTests` 里加断言，各自校验"构建出的工具链 == 契约"
+- **注意**：`setFlags` / `when` 里出现的新工具 id 若忘了在 `Toolchain.Create()` 里登记，只会打印 Debug 日志并跳过，不会崩——加新工具时记得两处都改
+- **位置**：`shared/toolchain.json`、`win/ImageOptim/Toolchain.cs`、`imageoptim/Backend/Job.m` ↔ `win/ImageOptim/Job.cs`
 
 ### ✅ OPT-20 MD5 弃用需 pragma 压制
 
@@ -370,13 +376,16 @@
 **第六批（Windows 性能 + 收尾小项）**：OPT-23 ✅ → OPT-17 ✅ → OPT-18 ✅（2026-10-21）
 **第七批**：OPT-24 ✅（macOS 测试接入 CI，2026-10-21）
 **第八批**：OPT-13 ✅ → OPT-30 ✅（2026-10-21）
-**第九批（最后 2 项，均需真机）**：OPT-19 双端对齐（架构级）→ OPT-11 增量累加（KVO 重构）
+**第九批**：OPT-19 🟡（契约文件 + Windows 侧落地 + 等价性验证，macOS 侧待接）（2026-10-21）
+**第十批（最后 1 项）**：OPT-11 增量累加（KVO 重构，需真机）
 
 ## 变更记录
 
 | 日期 | 变更类型 | 变更内容 | 作者 |
 | --- | --- | --- | --- |
 | 2026-10-21 | 首次生成 | 基于 commit `91df81a` 静态通读双端源码，梳理 29 项优化（P0×9 / P1×9 / P2×6 / P3×5），全部标记为待开始 | - |
+| 2026-10-21 | 第十批修复（续） | OPT-19 推进：契约新增 `platformDeviations` 记录 macOS 有意差异；新增 `scripts/check-toolchain.py` 做契约↔两端实现一致性校验（结构/词汇/偏好项名/工厂登记/macOS Worker 覆盖），并接入两条 CI；已负向测试确认会失败。**macOS 侧读契约未做**：严格对齐 Windows 会丢掉 level 递增与工具抑制，属回归，待确定"契约+平台偏差"分层 | - |
+| 2026-10-21 | 第十批修复 | OPT-19（**以 Windows 为基准**）：新增 `shared/toolchain.json` 双端契约 + `win/ImageOptim/Toolchain.cs` 契约驱动构建器，替换 `Job.BuildWorkers` 硬编码；删除旧实现。**等价性验证**：临时对比程序在 2 万随机偏好组合 × 4 文件类型 = 8 万组上比对旧/新工具链签名，0 差异（过程中抓出并修正 GIF `unless` else 分支求值时机 bug）。改动文件：`shared/toolchain.json`（新增）、`win/ImageOptim/Toolchain.cs`（新增）、`Job.cs`、`ImageOptim.csproj`。**验证**：`dotnet build -t:Rebuild` 0 warning 0 error；DLL 内嵌资源含 toolchain.json。**macOS 侧待接** | - |
 | 2026-10-21 | 第九批修复 | OPT-30（对齐 macOS 两阶段执行：`MakesNonOptimizingModifications` 的工具串行先跑，其余无损工具并行优化其产物，实现有损+无损叠加）。**行为变更：开启有损压缩时 Windows 产物会变小**。改动文件：`win/ImageOptim/Job.cs`（`firstRun`/`runLater` 拆分 + `CurrentBestInput` + `RunWorkerSerially`）。**验证**：括号配平 + 人工审阅，无本地编译环境 | - |
 | 2026-10-21 | 第八批修复 | OPT-13（全局进程预算 + 文件内工具并行，单文件可用满多核且进程总数不增）；**修正原判断**：Windows 各工具本就吃原始 input，并行不改变产物。新发现 OPT-30（有损/无损未串联，Windows 产物大于 macOS，需产品确认后再改）。改动文件：`win/ImageOptim/Job.cs`、`JobQueue.cs`、`Preferences.cs`（注释）。**验证**：括号配平 + 人工审阅，Windows 无本地编译环境；并发正确性依赖已有 `_lock` | - |
 | 2026-10-21 | 第七批修复 | OPT-24（macOS 测试接入 CI）：新增共享 scheme `BackendTests.xcscheme`；`.gitignore` 去掉 `*.xcscheme` 改为忽略 `xcuserdata/`；workflow 增加 `xcodebuild test` 步骤（ad-hoc 签名 + `-destination 'platform=macOS'`）。改动文件：`imageoptim/ImageOptim.xcodeproj/xcshareddata/xcschemes/BackendTests.xcscheme`（新增）、`.gitignore`、`.github/workflows/build-macos.yml`。**验证**：scheme 被 `xcodebuild -list` 识别，`test` 动作可起跑（仅卡在缺 Rust） | - |

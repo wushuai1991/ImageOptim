@@ -10,4 +10,6 @@ public enum FileType
     Jpeg = 2,
     Gif = 3,
     Svg = 4,
+    Bmp = 5,
+    Webp = 6,
 }

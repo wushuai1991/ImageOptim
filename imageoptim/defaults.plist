@@ -34,6 +34,12 @@
 	<true/>
 	<key>GifQuality</key>
 	<integer>80</integer>
+	<key>ConvertToJpegEnabled</key>
+	<false/>
+	<key>ConvertToJpegRemoveOriginal</key>
+	<false/>
+	<key>ConvertToJpegOutputDir</key>
+	<false/>
 	<key>PreservePermissions</key>
 	<true/>
 	<key>PreserveDates</key>

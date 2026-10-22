@@ -221,7 +221,10 @@ public sealed class Job
             if (workers.Count == 0)
             {
                 lock (_lock) { _isDone = true; }
-                SetError("所有必要的工具都已在偏好设置中禁用");
+                if (input.Type == FileType.Bmp || input.Type == FileType.Webp)
+                    SetError("BMP/WebP 没有无损优化工具，请先在偏好设置中开启「将 PNG/BMP/WebP 转换为 JPEG」");
+                else
+                    SetError("所有必要的工具都已在偏好设置中禁用");
                 Cleanup();
                 return;
             }
@@ -250,8 +253,15 @@ public sealed class Job
             // 阶段一：会产生「非优化性修改」的工具（有损压缩、剥离元数据）串行先跑，
             //         每个都基于"当前最优结果"，因此效果可叠加。
             // 阶段二：其余无损工具并行竞争，输入固定为阶段一结束时的最优结果。
-            var firstRun = workers.Where(w => w.MakesNonOptimizingModifications).ToList();
-            var runLater = workers.Where(w => !w.MakesNonOptimizingModifications).ToList();
+            // 格式转换（PNG/BMP → JPEG）不参与这两阶段的竞争：它必须以所有无损工具的最优结果为输入，
+            // 所以单独摘出来，在两阶段都结束后再跑（与 macOS 的 convertWorker 依赖关系等价）。
+            var convertWorker = workers.OfType<JpegConvertWorker>().FirstOrDefault();
+            var optimizingWorkers = convertWorker == null
+                ? workers
+                : workers.Where(w => w is not JpegConvertWorker).ToList();
+
+            var firstRun = optimizingWorkers.Where(w => w.MakesNonOptimizingModifications).ToList();
+            var runLater = optimizingWorkers.Where(w => !w.MakesNonOptimizingModifications).ToList();
 
             foreach (var w in firstRun)
             {
@@ -287,6 +297,12 @@ public sealed class Job
                 }));
             }
             Task.WaitAll(running.ToArray());
+
+            // 最后一步：以最优无损结果为输入转成 JPEG
+            if (convertWorker != null && !IsStopping())
+            {
+                RunWorkerSerially(convertWorker, CurrentBestInput(input), processBudget);
+            }
 
             lock (_lock)
             {
@@ -396,111 +412,23 @@ public sealed class Job
         return md5.ComputeHash(ms.ToArray());
     }
 
-    /// <summary>根据文件类型与偏好设置构建工具列表。</summary>
+    /// <summary>
+    /// 根据文件类型与偏好设置构建工具列表。
+    /// 规则本身在 shared/toolchain.json（双端契约，以 Windows 为基准），这里不再硬编码。
+    /// </summary>
     private List<Worker> BuildWorkers(ImageFile input)
     {
-        var list = new List<Worker>();
-        int level = _prefs.AdvPngLevel;
-        bool lossy = _prefs.LossyEnabled;
-
-        switch (input.Type)
-        {
-            case FileType.Png:
-                if (lossy && !_lossyConverted && _prefs.PngMinQuality < 100 && _prefs.PngMinQuality > 30)
-                {
-                    list.Add(new PngquantWorker(this, level, _prefs.PngMinQuality));
-                    _lossyConverted = true;
-                }
-                if (_prefs.PngCrush2Enabled) list.Add(new PngCrushWorker(this, level, _prefs));
-                if (_prefs.OptiPngEnabled) list.Add(new OxiPngWorker(this, level, _prefs.PngOutRemoveChunks));
-                if (_prefs.PngOutEnabled) list.Add(new PngoutWorker(this, level, _prefs));
-                if (_prefs.AdvPngEnabled && _prefs.PngOutRemoveChunks) list.Add(new AdvCompWorker(this, level));
-                if (_prefs.ZopfliEnabled) list.Add(new ZopfliWorker(this, level, _prefs) { AlternativeStrategy = false });
-                break;
-
-            case FileType.Jpeg:
-                BuildJpegWorkers(list);
-                break;
-
-            case FileType.Gif:
-                if (_prefs.GifsicleEnabled)
-                {
-                    if (lossy && !_lossyConverted && _prefs.GifQuality < 100 && _prefs.GifQuality > 30)
-                    {
-                        list.Add(new GifsicleWorker(this, interlace: false, _prefs.GifQuality));
-                        _lossyConverted = true;
-                    }
-                    else
-                    {
-                        list.Add(new GifsicleWorker(this, interlace: false, 100));
-                        if (level > 1)
-                            list.Add(new GifsicleWorker(this, interlace: true, 100));
-                    }
-                }
-                break;
-
-            case FileType.Svg:
-                if (_prefs.SvgoEnabled) list.Add(new SvgoWorker(this, lossy));
-                if (_prefs.SvgcleanerEnabled) list.Add(new SvgcleanerWorker(this, lossy));
-                break;
-
-            default:
-                break;
-        }
-
-        return list;
+        return Toolchain.Build(input.Type, this, _prefs, ref _lossyConverted);
     }
 
     /// <summary>
-    /// 按 <see cref="Preferences.JpegToolMode"/> 构建 JPEG 工具链。
-    /// - Best：混合最优——把所有启用（Enabled 开关为 true）的工具都放进队列，逐个执行，采纳最小结果。
-    /// - Jpegli / MozJpeg / JpegOptim / Guetzli：只运行指定的单一工具，忽略对应 Enabled 开关。
+    /// 比较并采纳工具产出的更小结果。
     /// </summary>
-    private void BuildJpegWorkers(List<Worker> list)
-    {
-        switch (_prefs.JpegToolMode)
-        {
-            case JpegToolMode.Jpegli:
-                list.Add(new JpegliWorker(this, _prefs));
-                break;
-
-            case JpegToolMode.MozJpeg:
-                list.Add(new JpegtranWorker(this, _prefs));
-                break;
-
-            case JpegToolMode.JpegOptim:
-                list.Add(new JpegoptimWorker(this, _prefs));
-                break;
-
-            case JpegToolMode.Guetzli:
-                // Guetzli 有质量下限校验，与原逻辑保持一致
-                if (_prefs.JpegOptimMaxQuality >= 80)
-                {
-                    list.Add(new GuetzliWorker(this, _prefs));
-                    _lossyConverted = true;
-                }
-                break;
-
-            case JpegToolMode.Best:
-            default:
-                // 混合最优：Guetzli（有损，需 lossy 前置校验），然后 jpegli、MozJPEG、jpegoptim 依次尝试并竞赛取最优
-                if (!_lossyConverted && _prefs.GuetzliEnabled && _prefs.JpegOptimMaxQuality >= 80)
-                {
-                    list.Add(new GuetzliWorker(this, _prefs));
-                    _lossyConverted = true;
-                }
-                // 首选：jpegli（libjxl 项目的现代 JPEG 编码器）
-                if (_prefs.JpegliEnabled) list.Add(new JpegliWorker(this, _prefs));
-                // 次选：MozJPEG（jpegtran 静态版）
-                if (_prefs.JpegTranEnabled) list.Add(new JpegtranWorker(this, _prefs));
-                // 备用：jpegoptim
-                if (_prefs.JpegOptimEnabled) list.Add(new JpegoptimWorker(this, _prefs));
-                break;
-        }
-    }
-
-    /// <summary>比较并采纳工具产出的更小结果。</summary>
-    public bool SetFileOptimized(string tempPath, string toolName)
+    /// <param name="overrideType">
+    /// 产物类型与输入不同时（格式转换 PNG/BMP → JPEG）需要显式指定，
+    /// 否则保存逻辑无法识别这是一次格式转换。
+    /// </param>
+    public bool SetFileOptimized(string tempPath, string toolName, FileType? overrideType = null)
     {
         if (!File.Exists(tempPath))
             return false;
@@ -530,7 +458,7 @@ public sealed class Job
                 prevTempToDelete = oldFile.Path;
             }
 
-            var newFile = new ImageFile(tempPath, newSize, oldFile.Type);
+            var newFile = new ImageFile(tempPath, newSize, overrideType ?? oldFile.Type);
             _wipInput = newFile;
 
             _bestTools[toolName] = (newSize, (double)oldSize / newSize);
@@ -592,15 +520,27 @@ public sealed class Job
         if (needSave)
         {
             bool saved = SaveResultLocked();
+
+            bool wasConversion;
             lock (_lock)
             {
                 _isDone = true;
                 _workers.Clear();
+                wasConversion = _savedOutput != null && _initialInput != null &&
+                                _savedOutput.Type != _initialInput.Type;
             }
+
             if (saved)
+            {
                 SetStatus("ok", 7, $"已用 {_bestToolName} 成功优化");
+                // 转换成功也记入缓存，否则重复运行会不断生成 "xxx 2.jpg"
+                if (wasConversion)
+                    _cache.MarkUnoptimizable(ResultsCache.ComputeHash(settingsHash, FilePath));
+            }
             else
+            {
                 SetError("优化后的文件无法保存");
+            }
         }
         else
         {
@@ -682,6 +622,10 @@ public sealed class Job
         if (fileToSave == null || original == null)
             return false;
 
+        // 产物类型与原图不同 → 一次格式转换（PNG/BMP → JPEG），必须另存新文件
+        if (fileToSave.Type != original.Type)
+            return SaveConvertedFile(fileToSave);
+
         string tempToCleanup = fileToSave.Path;
         try
         {
@@ -761,6 +705,63 @@ public sealed class Job
                 TryDelete(tempToCleanup);
             }
         }
+    }
+
+    /// <summary>
+    /// 格式转换（PNG/BMP → JPEG）的落盘：写入新的 .jpg 文件，原文件按设置保留或删除。
+    /// 与 macOS 的 <c>saveConvertedFile:</c> 语义一致。
+    /// </summary>
+    private bool SaveConvertedFile(ImageFile converted)
+    {
+        try
+        {
+            var dir = System.IO.Path.GetDirectoryName(FilePath)!;
+            if (_prefs.ConvertToJpegOutputDir)
+            {
+                dir = System.IO.Path.Combine(dir, "jpg-tran");
+                Directory.CreateDirectory(dir);
+            }
+
+            var target = AvailableJpegPath(dir);
+            ReplaceFile(converted.Path, target);
+
+            if (_prefs.ConvertToJpegRemoveOriginal)
+            {
+                try { File.Delete(FilePath); }
+                catch (Exception ex) { Debug.WriteLine($"删除原文件失败: {ex.Message}"); }
+            }
+
+            lock (_lock)
+            {
+                _savedOutput = new ImageFile(target, converted.ByteSize, FileType.Jpeg);
+                _wipInput = null;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"转换文件保存失败: {ex.Message}");
+            return false;
+        }
+        finally
+        {
+            // 保存成功时文件已被移走；失败时清掉残留
+            if (File.Exists(converted.Path))
+                TryDelete(converted.Path);
+        }
+    }
+
+    /// <summary>同目录下与原文件同名的 .jpg；已被占用时追加 " 2"、" 3"…</summary>
+    private string AvailableJpegPath(string dir)
+    {
+        var baseName = System.IO.Path.GetFileNameWithoutExtension(FilePath);
+        for (int i = 1; i < 1000; i++)
+        {
+            var candidate = System.IO.Path.Combine(dir, i == 1 ? baseName + ".jpg" : $"{baseName} {i}.jpg");
+            if (!File.Exists(candidate))
+                return candidate;
+        }
+        return System.IO.Path.Combine(dir, $"{baseName} {Guid.NewGuid():N}.jpg");
     }
 
     public bool CanRevert { get { lock (_lock) return CanRevertLocked(); } }

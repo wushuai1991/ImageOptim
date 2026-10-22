@@ -485,6 +485,8 @@ static NSString *kIMDraggedRowIndexesPboardType = @"com.imageoptim.rows";
 #define JPEG_ENABLED 2
 #define GIF_ENABLED 4
 #define SVG_ENABLED 8
+#define BMP_ENABLED 16
+#define WEBP_ENABLED 32
 
 - (int)typesEnabled {
     int types = 0;
@@ -493,6 +495,11 @@ static NSString *kIMDraggedRowIndexesPboardType = @"com.imageoptim.rows";
     if ([defs boolForKey:@"PngCrush2Enabled"] || [defs boolForKey:@"PngOutEnabled"] ||
         [defs boolForKey:@"OptiPngEnabled"] || [defs boolForKey:@"AdvPngEnabled"] || [defs boolForKey:@"ZopfliEnabled"]) {
         types |= PNG_ENABLED;
+    }
+
+    // 格式转换开启后：BMP/WebP 可以处理，PNG 即使所有无损工具都关掉也应允许加入（转成 JPEG 就是它的"优化"）
+    if ([defs boolForKey:@"ConvertToJpegEnabled"]) {
+        types |= PNG_ENABLED | BMP_ENABLED | WEBP_ENABLED;
     }
 
     if ([defs boolForKey:@"JpegOptimEnabled"] || [defs boolForKey:@"JpegTranEnabled"]) {
@@ -529,6 +536,14 @@ static NSString *kIMDraggedRowIndexesPboardType = @"com.imageoptim.rows";
     if (types & SVG_ENABLED) {
         [extensions addObject:@"svg"];
     }
+    if (types & BMP_ENABLED) {
+        [extensions addObject:@"bmp"];
+        [extensions addObject:@"BMP"];
+    }
+    if (types & WEBP_ENABLED) {
+        [extensions addObject:@"webp"];
+        [extensions addObject:@"WEBP"];
+    }
 
     return extensions;
 }
@@ -549,6 +564,12 @@ static NSString *kIMDraggedRowIndexesPboardType = @"com.imageoptim.rows";
     }
     if (types & SVG_ENABLED) {
         [fileTypes addObjectsFromArray:@[ @"svg", @"public.svg-image", @"image/svg" ]];
+    }
+    if (types & BMP_ENABLED) {
+        [fileTypes addObjectsFromArray:@[ @"bmp", @"BMP", NSFileTypeForHFSTypeCode('BMP '), @"public.bmp", @"com.microsoft.bmp", @"image/bmp" ]];
+    }
+    if (types & WEBP_ENABLED) {
+        [fileTypes addObjectsFromArray:@[ @"webp", @"WEBP", @"org.webmproject.webp", @"public.webp", @"image/webp" ]];
     }
     return fileTypes;
 }

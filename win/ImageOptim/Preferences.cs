@@ -61,6 +61,13 @@ public sealed class Preferences
     public bool PreserveDates { get; set; } = true;
     public bool RemoveOriginal { get; set; } = true;
 
+    // 格式转换（PNG/BMP → JPEG）：输出另存同名 .jpg，质量复用 JpegOptimMaxQuality
+    public bool ConvertToJpegEnabled { get; set; }
+    /// <summary>转换后是否删除原文件（默认保留）。</summary>
+    public bool ConvertToJpegRemoveOriginal { get; set; }
+    /// <summary>转换结果是否写入原目录下的 jpg-tran 子目录（默认写原目录）。</summary>
+    public bool ConvertToJpegOutputDir { get; set; }
+
     // 并发与进程选项
     // RunConcurrentFiles 同时是"并发文件数"和"全局外部进程预算"：
     //   * 单文件时，该文件的多个工具可以并行，最多同时跑这么多进程（能吃满多核）；
@@ -126,7 +133,9 @@ public sealed class Preferences
     public HashSet<string> EnabledExtensions()
     {
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (IsPngEnabled()) { result.Add("png"); }
+        // 开启格式转换后：BMP/WebP 可处理；PNG 即使无损工具全关也应允许加入（转 JPEG 就是它的"优化"）
+        if (ConvertToJpegEnabled) { result.Add("bmp"); result.Add("webp"); }
+        if (IsPngEnabled() || ConvertToJpegEnabled) { result.Add("png"); }
         // JPEG 支持：非 Best 模式下总是启用；Best 模式下需至少一个 JPEG 工具开关为 true
         if (JpegToolMode != JpegToolMode.Best ||
             JpegliEnabled || JpegOptimEnabled || JpegTranEnabled || GuetzliEnabled)

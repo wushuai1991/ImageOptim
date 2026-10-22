@@ -141,6 +141,20 @@ $tools = @(
         Sha256 = "97f2d832edbd7146261a01d0de3c64f7fdcb014fac384ec46597cb3fa9c77046"
     },
     @{
+        # libwebp official Windows x64 package: extract bin/dwebp.exe.
+        # Fallback WebP decoder used when the system WIC codec is unavailable
+        # (Windows 10 without the Store "WebP Image Extensions" package).
+        # Hash verified 2026-10-22 against the downloaded zip.
+        Name = "dwebp"
+        File = "dwebp.exe"
+        Urls = @(
+            "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.4.0-windows-x64.zip"
+        )
+        IsZip = $true
+        ZipExeName = "dwebp.exe"
+        Sha256 = "0e77cfd844f9a25ee10c7bc4fef145a0a855e3be61f9ce0e1893c27a604dab81"
+    },
+    @{
         # No usable Windows binary upstream (verified 2026-10-21):
         #   - pngcrush 1.8.13 win64 package on SourceForge returns 404;
         #   - svgo v3.3.2 only ships svgo.browser.js, there has never been a svgo-win.exe

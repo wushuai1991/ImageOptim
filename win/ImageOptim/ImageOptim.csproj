@@ -21,6 +21,11 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
+  <!-- 双端工具链契约（以 Windows 为基准），运行时从程序集资源读取 -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\shared\toolchain.json" LogicalName="toolchain.json" />
+  </ItemGroup>
+
   <!-- 工具二进制：构建时若已下载则拷贝到输出目录，并与可执行文件同目录 -->
   <ItemGroup>
     <None Include="Tools\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('Tools')" />
@@ -31,7 +36,7 @@
        （脚本内还有十余次 Test-Path），增量编译也要白等几秒到几十秒。 -->
   <Target Name="DownloadOptimizerTools"
           BeforeTargets="BeforeBuild"
-          Condition="'$(DownloadTools)' != 'false' and (!Exists('$(MSBuildProjectDirectory)\Tools\oxipng.exe') or !Exists('$(MSBuildProjectDirectory)\Tools\cjpegli.exe'))">
+          Condition="'$(DownloadTools)' != 'false' and (!Exists('$(MSBuildProjectDirectory)\Tools\oxipng.exe') or !Exists('$(MSBuildProjectDirectory)\Tools\cjpegli.exe') or !Exists('$(MSBuildProjectDirectory)\Tools\dwebp.exe'))">
     <Message Importance="high" Text="正在准备图片优化工具二进制文件..." />
     <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\tools\download-tools.ps1&quot; -Destination &quot;$(MSBuildProjectDirectory)\Tools&quot;" ContinueOnError="true" />
   </Target>

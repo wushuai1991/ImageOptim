@@ -24,6 +24,10 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      # 契约文件（shared/toolchain.json）与两端实现的一致性检查
+      - name: 校验工具链契约
+        run: python scripts/check-toolchain.py .
+
       - name: 下载图片优化工具
         shell: powershell
         # 必需工具（oxipng/pngquant/jpegoptim/cjpegli/jpegtran）下载失败会导致脚本 exit 1 并中断构建；

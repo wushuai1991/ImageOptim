@@ -833,6 +833,70 @@
                                                 </binding>
                                             </connections>
                                         </textField>
+                                        <button translatesAutoresizingMaskIntoConstraints="NO" id="cvJ-Chk-Cnv">
+                                            <rect key="frame" x="118" y="106" width="246" height="18"/>
+                                            <constraints>
+                                                <constraint firstAttribute="height" constant="14" id="cvJ-Cs-Hc1"/>
+                                            </constraints>
+                                            <buttonCell key="cell" type="check" title="Convert PNG/BMP/WebP to JPEG" bezelStyle="regularSquare" imagePosition="left" lineBreakMode="truncatingTail" state="on" inset="2" id="cvJ-Cl-Cnv">
+                                                <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                                                <font key="font" metaFont="system"/>
+                                            </buttonCell>
+                                            <connections>
+                                                <binding destination="300" name="value" keyPath="values.ConvertToJpegEnabled" id="cvJ-Bn-Cnv">
+                                                    <dictionary key="options">
+                                                        <bool key="NSAllowsEditingMultipleValuesSelection" value="NO"/>
+                                                        <bool key="NSRaisesForNotApplicableKeys" value="NO"/>
+                                                    </dictionary>
+                                                </binding>
+                                            </connections>
+                                        </button>
+                                        <button translatesAutoresizingMaskIntoConstraints="NO" id="cvJ-Chk-Rmv">
+                                            <rect key="frame" x="118" y="84" width="300" height="18"/>
+                                            <constraints>
+                                                <constraint firstAttribute="height" constant="14" id="cvJ-Cs-Hc2"/>
+                                            </constraints>
+                                            <buttonCell key="cell" type="check" title="Move the original file to Trash after conversion" bezelStyle="regularSquare" imagePosition="left" lineBreakMode="truncatingTail" state="on" inset="2" id="cvJ-Cl-Rmv">
+                                                <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                                                <font key="font" metaFont="system"/>
+                                            </buttonCell>
+                                            <connections>
+                                                <binding destination="300" name="value" keyPath="values.ConvertToJpegRemoveOriginal" id="cvJ-Bn-Rmv">
+                                                    <dictionary key="options">
+                                                        <bool key="NSAllowsEditingMultipleValuesSelection" value="NO"/>
+                                                        <bool key="NSRaisesForNotApplicableKeys" value="NO"/>
+                                                    </dictionary>
+                                                </binding>
+                                                <binding destination="300" name="enabled" keyPath="values.ConvertToJpegEnabled" id="cvJ-Bn-RmE">
+                                                    <dictionary key="options">
+                                                        <bool key="NSRaisesForNotApplicableKeys" value="NO"/>
+                                                    </dictionary>
+                                                </binding>
+                                            </connections>
+                                        </button>
+                                        <button translatesAutoresizingMaskIntoConstraints="NO" id="cvJ-Chk-Dir">
+                                            <rect key="frame" x="118" y="62" width="320" height="18"/>
+                                            <constraints>
+                                                <constraint firstAttribute="height" constant="14" id="cvJ-Cs-Hc3"/>
+                                            </constraints>
+                                            <buttonCell key="cell" type="check" title="Write converted files into a &quot;jpg-tran&quot; subfolder" bezelStyle="regularSquare" imagePosition="left" lineBreakMode="truncatingTail" state="on" inset="2" id="cvJ-Cl-Dir">
+                                                <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                                                <font key="font" metaFont="system"/>
+                                            </buttonCell>
+                                            <connections>
+                                                <binding destination="300" name="value" keyPath="values.ConvertToJpegOutputDir" id="cvJ-Bn-Dir">
+                                                    <dictionary key="options">
+                                                        <bool key="NSAllowsEditingMultipleValuesSelection" value="NO"/>
+                                                        <bool key="NSRaisesForNotApplicableKeys" value="NO"/>
+                                                    </dictionary>
+                                                </binding>
+                                                <binding destination="300" name="enabled" keyPath="values.ConvertToJpegEnabled" id="cvJ-Bn-DiE">
+                                                    <dictionary key="options">
+                                                        <bool key="NSRaisesForNotApplicableKeys" value="NO"/>
+                                                    </dictionary>
+                                                </binding>
+                                            </connections>
+                                        </button>
                                     </subviews>
                                     <constraints>
                                         <constraint firstItem="230" firstAttribute="leading" secondItem="188" secondAttribute="leading" id="0DR-hc-gbR"/>
@@ -893,6 +957,15 @@
                                         <constraint firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="yIu-do-gJk" secondAttribute="trailing" constant="20" symbolic="YES" id="zNn-x2-bYP"/>
                                         <constraint firstItem="z4S-g9-Q0f" firstAttribute="baseline" secondItem="5Ah-J5-74w" secondAttribute="baseline" id="zOZ-EE-90V"/>
                                         <constraint firstItem="I4L-mY-Pzx" firstAttribute="bottom" secondItem="Dmk-FL-ezg" secondAttribute="bottom" id="zUL-8V-ILS"/>
+                                        <constraint firstItem="cvJ-Chk-Cnv" firstAttribute="leading" secondItem="178" secondAttribute="leading" constant="118" id="cvJ-Cs-L01"/>
+                                        <constraint firstItem="cvJ-Chk-Cnv" firstAttribute="top" secondItem="178" secondAttribute="top" constant="188" id="cvJ-Cs-T01"/>
+                                        <constraint firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="cvJ-Chk-Cnv" secondAttribute="trailing" constant="20" symbolic="YES" id="cvJ-Cs-R01"/>
+                                        <constraint firstItem="cvJ-Chk-Rmv" firstAttribute="leading" secondItem="cvJ-Chk-Cnv" secondAttribute="leading" id="cvJ-Cs-L02"/>
+                                        <constraint firstItem="cvJ-Chk-Rmv" firstAttribute="top" secondItem="cvJ-Chk-Cnv" secondAttribute="bottom" constant="6" id="cvJ-Cs-T02"/>
+                                        <constraint firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="cvJ-Chk-Rmv" secondAttribute="trailing" constant="20" symbolic="YES" id="cvJ-Cs-R02"/>
+                                        <constraint firstItem="cvJ-Chk-Dir" firstAttribute="leading" secondItem="cvJ-Chk-Cnv" secondAttribute="leading" id="cvJ-Cs-L03"/>
+                                        <constraint firstItem="cvJ-Chk-Dir" firstAttribute="top" secondItem="cvJ-Chk-Rmv" secondAttribute="bottom" constant="6" id="cvJ-Cs-T03"/>
+                                        <constraint firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="cvJ-Chk-Dir" secondAttribute="trailing" constant="20" symbolic="YES" id="cvJ-Cs-R03"/>
                                     </constraints>
                                 </view>
                             </tabViewItem>

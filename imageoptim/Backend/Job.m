@@ -18,6 +18,7 @@
 #import "Workers/SvgoWorker.h"
 #import "Workers/SvgcleanerWorker.h"
 #import "Workers/GuetzliWorker.h"
+#import "Workers/JpegConvertWorker.h"
 #import <sys/xattr.h>
 #import "log.h"
 #include "ResultsDb.h"
@@ -46,11 +47,16 @@
 @property (assign) BOOL isDone;
 @property (assign) BOOL isFailed;
 @property (readwrite, nullable) File *initialInput, *unoptimizedInput, *wipInput, *savedOutput, *revertFile;
+
+- (BOOL)saveConvertedFile:(File *)convertedFile;
+- (NSURL *)availableJpegURLInDirectory:(NSURL *)directory;
 @end
 
 @implementation Job {
     BOOL preservePermissions;
     BOOL preserveDates;
+    BOOL convertRemoveOriginal;
+    BOOL convertIntoSubdir;
 }
 
 @synthesize workersPreviousResults, filePath, displayName, statusText, statusOrder, statusImageName, bestToolName, isFailed, isDone;
@@ -314,6 +320,16 @@
 
 - (BOOL)saveResult {
     File *fileToSave = self.wipInput;
+    if (!fileToSave) {
+        return NO;
+    }
+
+    // 产物类型与原图不同 → 这是一次格式转换（PNG/BMP → JPEG），必须另存新文件
+    File *original = self.unoptimizedInput;
+    if (original && fileToSave->fileType != original->fileType) {
+        return [self saveConvertedFile:fileToSave];
+    }
+
     @try {
         NSFileManager *fm = [NSFileManager defaultManager];
 
@@ -485,6 +501,74 @@
     return YES;
 }
 
+/// 格式转换（PNG/BMP → JPEG）的落盘：写入新的 .jpg 文件，原文件按设置保留或移入废纸篓。
+- (BOOL)saveConvertedFile:(File *)convertedFile {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSError *error = nil;
+
+    NSURL *directory = [filePath URLByDeletingLastPathComponent];
+    if (convertIntoSubdir) {
+        directory = [directory URLByAppendingPathComponent:@"jpg-tran" isDirectory:YES];
+        if (![fm createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:&error]) {
+            IOWarn(@"Can't create %@: %@", directory.path, error);
+            return NO;
+        }
+    }
+
+    if (![fm isWritableFileAtPath:directory.path]) {
+        IOWarn(@"The directory %@ is not writable", directory.path);
+        return NO;
+    }
+
+    NSURL *targetURL = [self availableJpegURLInDirectory:directory];
+
+    // 临时文件通常与目标不同卷，move 失败时退化为复制 + 删除
+    if (![fm moveItemAtURL:convertedFile.path toURL:targetURL error:&error]) {
+        IOWarn(@"Can't move %@ to %@: %@", convertedFile.path.path, targetURL.path, error);
+        error = nil;
+        if (![fm copyItemAtURL:convertedFile.path toURL:targetURL error:&error]) {
+            IOWarn(@"Can't write %@: %@", targetURL.path, error);
+            return NO;
+        }
+        [fm removeItemAtURL:convertedFile.path error:nil];
+    }
+
+    if (convertRemoveOriginal) {
+        NSError *removeError = nil;
+        if (![self trashFileAtURL:filePath resultingItemURL:nil error:&removeError]) {
+            IOWarn(@"Can't remove original %@: %@", filePath.path, removeError);
+        }
+    }
+
+    self.savedOutput = [[File alloc] initWithType:convertedFile->fileType size:convertedFile.byteSize fromPath:targetURL];
+    [self setFileOptimized:nil];
+
+    // 记入结果缓存：同一原图 + 同一套设置不必再转换一次，否则重复运行会不断生成 "xxx 2.jpg"
+    if (self.savedOutput && db) {
+        [db setUnoptimizableFileHash:inputFileHash size:self.unoptimizedInput.byteSize];
+    }
+
+    return self.savedOutput != nil;
+}
+
+/// 与原文件同名的 .jpg；已被占用时追加 " 2"、" 3"…
+- (NSURL *)availableJpegURLInDirectory:(NSURL *)directory {
+    NSString *baseName = [[filePath lastPathComponent] stringByDeletingPathExtension];
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    for (NSInteger i = 1; i < 1000; i++) {
+        NSString *name = i == 1
+            ? [baseName stringByAppendingPathExtension:@"jpg"]
+            : [[NSString stringWithFormat:@"%@ %ld", baseName, (long)i] stringByAppendingPathExtension:@"jpg"];
+        NSURL *candidate = [directory URLByAppendingPathComponent:name];
+        if (![fm fileExistsAtPath:candidate.path]) {
+            return candidate;
+        }
+    }
+
+    return [directory URLByAppendingPathComponent:[NSString stringWithFormat:@"%@ %u.jpg", baseName, arc4random_uniform(100000)]];
+}
+
 - (void)setNooptStatus {
     [self setFileOptimized:nil]; // Needed to update 0% optimized display
     [self setStatus:@"noopt" order:5 text:NSLocalizedString(@"File cannot be optimized any further", @"tooltip")];
@@ -526,6 +610,8 @@
         workers = [[NSMutableArray alloc] initWithCapacity:10];
         preservePermissions = [defaults boolForKey:@"PreservePermissions"];
         preserveDates = [defaults boolForKey:@"PreserveDates"];
+        convertRemoveOriginal = [defaults boolForKey:@"ConvertToJpegRemoveOriginal"];
+        convertIntoSubdir = [defaults boolForKey:@"ConvertToJpegOutputDir"];
 
         BOOL isQueueUnderUtilized = queue.operationCount < queue.maxConcurrentOperationCount;
         if (isQueueUnderUtilized) {
@@ -586,8 +672,12 @@
     NSMutableArray *runLater = [NSMutableArray new];
 
     NSMutableArray *worker_list = [NSMutableArray new];
+    // 格式转换（PNG/BMP → JPEG）不是普通优化工具：它必须在所有无损工具跑完之后，
+    // 以「当前最优结果」为输入，因此单独持有、单独排队。
+    Worker *convertWorker = nil;
     NSInteger level = [defs integerForKey:@"AdvPngLevel"]; // AdvPNG setting is reused for all tools now
     BOOL lossyEnabled = [defs boolForKey:@"LossyEnabled"];
+    BOOL convertToJpeg = [defs boolForKey:@"ConvertToJpegEnabled"];
     if (lossyEnabled) {
         dispatch_async(dispatch_get_main_queue(), ^() {
             [defs setBool:YES forKey:@"LossyUsed"];
@@ -634,6 +724,20 @@
             ZopfliWorker *zw = [[ZopfliWorker alloc] initWithLevel:level defaults:defs file:self];
             zw.alternativeStrategy = hasBeenRunBefore;
             [worker_list addObject:zw];
+        }
+        if (convertToJpeg) {
+            convertWorker = [[JpegConvertWorker alloc] initWithQuality:[defs integerForKey:@"JpegOptimMaxQuality"] file:self];
+        }
+        break;
+    case FILETYPE_BMP:
+    case FILETYPE_WEBP:
+        // BMP / WebP 没有可用的无损优化工具，转成 JPEG 才有意义
+        if (convertToJpeg) {
+            convertWorker = [[JpegConvertWorker alloc] initWithQuality:[defs integerForKey:@"JpegOptimMaxQuality"] file:self];
+        } else {
+            [self setError:NSLocalizedString(@"Enable \"Convert PNG/BMP/WebP to JPEG\" in Preferences to process BMP or WebP files", @"tooltip")];
+            [self cleanup];
+            return;
         }
         break;
     case FILETYPE_JPEG:
@@ -692,7 +796,11 @@
     }
 
     // Create a hash that includes all optimization settings to invalidate file caches on settings changes
-    [self setSettingsHash:[runFirst arrayByAddingObjectsFromArray:runLater]];
+    NSMutableArray *allWorkers = [[runFirst arrayByAddingObjectsFromArray:runLater] mutableCopy];
+    if (convertWorker) {
+        [allWorkers addObject:convertWorker];
+    }
+    [self setSettingsHash:allWorkers];
 
     // Can't check only file size, because then hash won't be available on save!
     CC_SHA256_CTX sha256ctx = {};
@@ -735,9 +843,24 @@
         previousWorker = w;
     }
 
+    if (convertWorker) {
+        // 转换排在最后：依赖全部无损工具，输入必然是当前最优的无损结果
+        for (Worker *w in runLater) {
+            [convertWorker addDependency:w];
+        }
+        if (![runLater count] && runFirstDependency) {
+            [convertWorker addDependency:runFirstDependency];
+        }
+        [saveOp addDependency:convertWorker];
+        [queue addOperation:convertWorker];
+    }
+
     [self willChangeValueForKey:@"isBusy"];
     [workers addObjectsFromArray:runFirst];
     [workers addObjectsFromArray:runLater];
+    if (convertWorker) {
+        [workers addObject:convertWorker];
+    }
     [self didChangeValueForKey:@"isBusy"];
 
     if (![workers count]) {

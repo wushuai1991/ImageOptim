@@ -92,6 +92,8 @@
 		5AD0347C1E27185D0030291A /* TempFile.h in Headers */ = {isa = PBXBuildFile; fileRef = 5AD0347A1E27185D0030291A /* TempFile.h */; };
 		5AD0347D1E27185D0030291A /* TempFile.m in Sources */ = {isa = PBXBuildFile; fileRef = 5AD0347B1E27185D0030291A /* TempFile.m */; };
 		5AE04E2E1B5301E100669E85 /* PngquantWorker.m in Sources */ = {isa = PBXBuildFile; fileRef = 5AA9F4371899D063006C64C8 /* PngquantWorker.m */; };
+		B0A1C0DE1E00000000000003 /* JpegConvertWorker.m in Sources */ = {isa = PBXBuildFile; fileRef = B0A1C0DE1E00000000000002 /* JpegConvertWorker.m */; };
+		B0A1C0DE1E00000000000005 /* ImageIO.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B0A1C0DE1E00000000000004 /* ImageIO.framework */; };
 		5AF8536C1B49F21C00CF76F5 /* FadeView.m in Sources */ = {isa = PBXBuildFile; fileRef = 5AF8536B1B49F21C00CF76F5 /* FadeView.m */; };
 		5F91633A2ADB7A7B00230D34 /* pngquant in CopyFiles */ = {isa = PBXBuildFile; fileRef = 5F9163392ADB7A7B00230D34 /* pngquant */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		5FD569DD21A059A000BC9F82 /* JobProxy.m in Sources */ = {isa = PBXBuildFile; fileRef = 5FD569DC21A059A000BC9F82 /* JobProxy.m */; };
@@ -648,6 +650,9 @@
 		5AA339021117C41B00046C79 /* German */ = {isa = PBXFileReference; lastKnownFileType = file.plist.strings; name = German; path = de.lproj/PrefsController.strings; sourceTree = "<group>"; };
 		5AA9F4361899D063006C64C8 /* PngquantWorker.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PngquantWorker.h; sourceTree = "<group>"; };
 		5AA9F4371899D063006C64C8 /* PngquantWorker.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = PngquantWorker.m; sourceTree = "<group>"; };
+		B0A1C0DE1E00000000000001 /* JpegConvertWorker.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JpegConvertWorker.h; sourceTree = "<group>"; };
+		B0A1C0DE1E00000000000002 /* JpegConvertWorker.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = JpegConvertWorker.m; sourceTree = "<group>"; };
+		B0A1C0DE1E00000000000004 /* ImageIO.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ImageIO.framework; path = System/Library/Frameworks/ImageIO.framework; sourceTree = SDKROOT; };
 		5AA9F5F5189339A500697D8E /* log.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = log.h; sourceTree = "<group>"; };
 		5AA9F7701893736100697D8E /* el */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = el; path = el.lproj/ImageOptim.strings; sourceTree = "<group>"; };
 		5AA9F781189373AB00697D8E /* tr */ = {isa = PBXFileReference; lastKnownFileType = file.plist.strings; name = tr; path = tr.lproj/PrefsController.strings; sourceTree = "<group>"; };
@@ -746,6 +751,7 @@
 				5ABE161C1AE508F400861C6B /* AppKit.framework in Frameworks */,
 				5ABE161D1AE508FA00861C6B /* Foundation.framework in Frameworks */,
 				5ABE161B1AE508E600861C6B /* libsqlite3.dylib in Frameworks */,
+				B0A1C0DE1E00000000000005 /* ImageIO.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -899,6 +905,7 @@
 				5AEF1B2110F2BCB200E3E4F0 /* Foundation.framework */,
 				5A08FDAF1933D635001DA24B /* libsqlite3.dylib */,
 				5A99FE83140AE80600BB2F79 /* Quartz.framework */,
+				B0A1C0DE1E00000000000004 /* ImageIO.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -1122,6 +1129,8 @@
 				5AACA13E0CAF241B004D45CA /* Worker.m */,
 				5A2ACD121790935C004992B7 /* ZopfliWorker.h */,
 				5A2ACD131790935C004992B7 /* ZopfliWorker.m */,
+				B0A1C0DE1E00000000000001 /* JpegConvertWorker.h */,
+				B0A1C0DE1E00000000000002 /* JpegConvertWorker.m */,
 			);
 			name = Workers;
 			path = Backend/Workers;
@@ -1675,6 +1684,7 @@
 				5AD0347D1E27185D0030291A /* TempFile.m in Sources */,
 				5ABE15821AE5073E00861C6B /* Worker.m in Sources */,
 				5ABE15831AE5073E00861C6B /* ZopfliWorker.m in Sources */,
+				B0A1C0DE1E00000000000003 /* JpegConvertWorker.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

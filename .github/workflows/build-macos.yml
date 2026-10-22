@@ -30,6 +30,10 @@ jobs:
       - name: 显示 Xcode 版本
         run: xcodebuild -version
 
+      # 契约文件与两端实现的一致性检查（纯 Python，秒级）
+      - name: 校验工具链契约
+        run: python3 scripts/check-toolchain.py .
+
       # pngquant / svgcleaner / oxipng 等工具是通过 Xcode build rule 调用 cargo build 产出的，
       # 没有 Rust 会直接 "error: cargo build failed"。
       - name: 安装 Rust

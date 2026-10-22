@@ -1,0 +1,198 @@
+{
+  "version": 1,
+  "baseline": "win",
+  "note": "工具链构建规则的单一来源。内容以 Windows 实现（win/ImageOptim/Job.cs 的历史逻辑）为基准，macOS 端应读取同一份文件并与其保持一致。修改本文件等于改变产品行为，需双端同步评审。",
+  "legend": {
+    "when": "全部条件成立才加入该工具（AND）",
+    "unless": "这些条件全部成立时跳过该工具（表达 else 分支）",
+    "pref": "Preferences 里的属性名；带 gt/lt/gte/lte 时做数值比较，否则当布尔用",
+    "flag.lossyEnabled": "有损压缩总开关",
+    "flag.noLossyYet": "本文件尚未执行过有损工具（保证每种文件类型只跑一次有损）",
+    "mode": "JpegToolMode 取值，用于 JPEG 单选模式",
+    "setFlags": "加入该工具后置位的状态位"
+  },
+  "platformDeviations": {
+    "note": "各平台在契约之外【有意保留】的差异。接入契约时不要顺手抹平，先确认产品意图。",
+    "macos": [
+      "level 递增：hasBeenRunBefore 为真时 level++，重新优化会尝试更高档位（影响 oxipng/pngcrush/pngout/zopfli 的档位参数，也影响下面的抑制规则）",
+      "工具抑制：level < 4 且启用 zopfli 时跳过 pngout；level < 2 且启用 oxipng 时跳过 pngcrush",
+      "Guetzli 额外要求 !hasBeenRunBefore，Windows 只看 lossyConverted",
+      "有损工具直接放进 runFirst 串行队列，不依赖 Worker 的 makesNonOptimizingModifications 标记",
+      "没有 jpegli 工具；Zopfli 用 alternativeStrategy（重新优化时改策略）"
+    ],
+    "win": [
+      "无 level 递增，也无基于 level 的工具抑制",
+      "有 jpegli（libjxl 的现代 JPEG 编码器），macOS 没有"
+    ]
+  },
+  "types": {
+    "png": [
+      {
+        "id": "pngquant",
+        "name": "pngquant",
+        "when": [
+          { "flag": "lossyEnabled" },
+          { "flag": "noLossyYet" },
+          { "pref": "PngMinQuality", "gt": 30, "lt": 100 }
+        ],
+        "setFlags": ["lossyConverted"]
+      },
+      {
+        "id": "pngcrush",
+        "name": "Pngcrush",
+        "when": [{ "pref": "PngCrush2Enabled" }]
+      },
+      {
+        "id": "oxipng",
+        "name": "OxiPNG",
+        "when": [{ "pref": "OptiPngEnabled" }]
+      },
+      {
+        "id": "pngout",
+        "name": "PNGOUT",
+        "when": [{ "pref": "PngOutEnabled" }]
+      },
+      {
+        "id": "advpng",
+        "name": "AdvPNG",
+        "when": [
+          { "pref": "AdvPngEnabled" },
+          { "pref": "PngOutRemoveChunks" }
+        ]
+      },
+      {
+        "id": "zopfli",
+        "name": "Zopfli",
+        "when": [{ "pref": "ZopfliEnabled" }]
+      },
+      {
+        "id": "jpegconvert",
+        "name": "PNG→JPEG",
+        "when": [{ "pref": "ConvertToJpegEnabled" }]
+      }
+    ],
+    "jpeg": [
+      {
+        "id": "jpegli",
+        "name": "jpegli",
+        "when": [{ "mode": "Jpegli" }]
+      },
+      {
+        "id": "jpegtran",
+        "name": "MozJPEG",
+        "when": [{ "mode": "MozJpeg" }]
+      },
+      {
+        "id": "jpegoptim",
+        "name": "JpegOptim",
+        "when": [{ "mode": "JpegOptim" }]
+      },
+      {
+        "id": "guetzli",
+        "name": "Guetzli",
+        "when": [
+          { "mode": "Guetzli" },
+          { "pref": "JpegOptimMaxQuality", "gte": 80 }
+        ],
+        "setFlags": ["lossyConverted"]
+      },
+      {
+        "id": "guetzli",
+        "name": "Guetzli",
+        "when": [
+          { "mode": "Best" },
+          { "pref": "GuetzliEnabled" },
+          { "flag": "noLossyYet" },
+          { "pref": "JpegOptimMaxQuality", "gte": 80 }
+        ],
+        "setFlags": ["lossyConverted"]
+      },
+      {
+        "id": "jpegli",
+        "name": "jpegli",
+        "when": [
+          { "mode": "Best" },
+          { "pref": "JpegliEnabled" }
+        ]
+      },
+      {
+        "id": "jpegtran",
+        "name": "MozJPEG",
+        "when": [
+          { "mode": "Best" },
+          { "pref": "JpegTranEnabled" }
+        ]
+      },
+      {
+        "id": "jpegoptim",
+        "name": "JpegOptim",
+        "when": [
+          { "mode": "Best" },
+          { "pref": "JpegOptimEnabled" }
+        ]
+      }
+    ],
+    "gif": [
+      {
+        "id": "gifsicle_lossy",
+        "name": "Gifsicle",
+        "when": [
+          { "pref": "GifsicleEnabled" },
+          { "flag": "lossyEnabled" },
+          { "flag": "noLossyYet" },
+          { "pref": "GifQuality", "gt": 30, "lt": 100 }
+        ],
+        "setFlags": ["lossyConverted"]
+      },
+      {
+        "id": "gifsicle",
+        "name": "Gifsicle",
+        "when": [{ "pref": "GifsicleEnabled" }],
+        "unless": [
+          { "flag": "lossyEnabled" },
+          { "flag": "noLossyYet" },
+          { "pref": "GifQuality", "gt": 30, "lt": 100 }
+        ]
+      },
+      {
+        "id": "gifsicle_interlaced",
+        "name": "Gifsicle",
+        "when": [
+          { "pref": "GifsicleEnabled" },
+          { "pref": "AdvPngLevel", "gt": 1 }
+        ],
+        "unless": [
+          { "flag": "lossyEnabled" },
+          { "flag": "noLossyYet" },
+          { "pref": "GifQuality", "gt": 30, "lt": 100 }
+        ]
+      }
+    ],
+    "svg": [
+      {
+        "id": "svgo",
+        "name": "SVGO",
+        "when": [{ "pref": "SvgoEnabled" }]
+      },
+      {
+        "id": "svgcleaner",
+        "name": "Svgcleaner",
+        "when": [{ "pref": "SvgcleanerEnabled" }]
+      }
+    ],
+    "bmp": [
+      {
+        "id": "jpegconvert",
+        "name": "BMP→JPEG",
+        "when": [{ "pref": "ConvertToJpegEnabled" }]
+      }
+    ],
+    "webp": [
+      {
+        "id": "jpegconvert",
+        "name": "WebP→JPEG",
+        "when": [{ "pref": "ConvertToJpegEnabled" }]
+      }
+    ]
+  }
+}
