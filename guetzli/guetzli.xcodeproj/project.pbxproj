@@ -27,9 +27,9 @@
 		D047E51A1E7D86AD0036F96B /* quality.cc in Sources */ = {isa = PBXBuildFile; fileRef = D047E4AF1E7D7F070036F96B /* quality.cc */; };
 		D047E51C1E7D86AD0036F96B /* quantize.cc in Sources */ = {isa = PBXBuildFile; fileRef = D047E4B11E7D7F070036F96B /* quantize.cc */; };
 		D047E51E1E7D86AD0036F96B /* score.cc in Sources */ = {isa = PBXBuildFile; fileRef = D047E4B31E7D7F070036F96B /* score.cc */; };
-		D047E5231E7D87670036F96B /* liblibpng.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = D047E5221E7D87670036F96B /* liblibpng.dylib */; };
+		D047E5231E7D87670036F96B /* liblibpng.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 5AB6A9061E966617009BDBC3 /* liblibpng.dylib */; };
 		D047E5291E7D8A050036F96B /* butteraugli.cc in Sources */ = {isa = PBXBuildFile; fileRef = D047E5251E7D89D50036F96B /* butteraugli.cc */; };
-		D047E52B1E7D8BFD0036F96B /* libimageoptimjpeg.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = D047E52A1E7D8BFD0036F96B /* libimageoptimjpeg.dylib */; };
+		D047E52B1E7D8BFD0036F96B /* libimageoptimjpeg.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = B0A1C0DE1E00000000000013 /* libimageoptimjpeg.dylib */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -61,6 +61,20 @@
 			remoteGlobalIDString = D047E4CE1E7D81720036F96B;
 			remoteInfo = download;
 		};
+		B0A1C0DE1E00000000000011 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B0A1C0DE1E00000000000010 /* jpeg.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = D2AAC0630554660B00DB518D;
+			remoteInfo = jpeg;
+		};
+		B0A1C0DE1E00000000000012 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B0A1C0DE1E00000000000010 /* jpeg.xcodeproj */;
+			proxyType = 1;
+			remoteGlobalIDString = D2AAC0620554660B00DB518D;
+			remoteInfo = jpeg;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -79,6 +93,7 @@
 		5A86E6131E8133B900C54C09 /* debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../imageoptim/debug.xcconfig; sourceTree = "<group>"; };
 		5A86E6141E8133B900C54C09 /* release.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = release.xcconfig; path = ../imageoptim/release.xcconfig; sourceTree = "<group>"; };
 		5AB6A8FE1E966617009BDBC3 /* libpng.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = libpng.xcodeproj; path = ../libpng/libpng.xcodeproj; sourceTree = "<group>"; };
+		B0A1C0DE1E00000000000010 /* jpeg.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = jpeg.xcodeproj; path = ../libjpeg/jpeg.xcodeproj; sourceTree = "<group>"; };
 		D047E4871E7D7F070036F96B /* butteraugli_comparator.cc */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = butteraugli_comparator.cc; path = guetzli/butteraugli_comparator.cc; sourceTree = "<group>"; };
 		D047E4881E7D7F070036F96B /* butteraugli_comparator.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = butteraugli_comparator.h; path = guetzli/butteraugli_comparator.h; sourceTree = "<group>"; };
 		D047E4891E7D7F070036F96B /* color_transform.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = color_transform.h; path = guetzli/color_transform.h; sourceTree = "<group>"; };
@@ -126,11 +141,10 @@
 		D047E4B41E7D7F070036F96B /* score.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = score.h; path = guetzli/score.h; sourceTree = "<group>"; };
 		D047E4B51E7D7F070036F96B /* stats.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = stats.h; path = guetzli/stats.h; sourceTree = "<group>"; };
 		D047E4E81E7D868D0036F96B /* guetzli */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = guetzli; sourceTree = BUILT_PRODUCTS_DIR; };
-		D047E5221E7D87670036F96B /* liblibpng.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = liblibpng.dylib; path = "../../../Library/Developer/Xcode/DerivedData/ImageOptim-cmhdqovjmikzhafpeansxwkmezkf/Build/Products/Debug/liblibpng.dylib"; sourceTree = "<group>"; };
+		D047E5221E7D87670036F96B /* liblibpng.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = liblibpng.dylib; path = liblibpng.dylib; sourceTree = BUILT_PRODUCTS_DIR; };
 		D047E5241E7D89D50036F96B /* butteraugli_main.cc */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = butteraugli_main.cc; path = guetzli/third_party/butteraugli/butteraugli/butteraugli_main.cc; sourceTree = "<group>"; };
 		D047E5251E7D89D50036F96B /* butteraugli.cc */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = butteraugli.cc; path = guetzli/third_party/butteraugli/butteraugli/butteraugli.cc; sourceTree = "<group>"; };
 		D047E5261E7D89D50036F96B /* butteraugli.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = butteraugli.h; path = guetzli/third_party/butteraugli/butteraugli/butteraugli.h; sourceTree = "<group>"; };
-		D047E52A1E7D8BFD0036F96B /* libimageoptimjpeg.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libimageoptimjpeg.dylib; path = "../../../Library/Developer/Xcode/DerivedData/ImageOptim-cmhdqovjmikzhafpeansxwkmezkf/Build/Products/Debug/libimageoptimjpeg.dylib"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -164,8 +178,17 @@
 				D047E5271E7D89F10036F96B /* third_party */,
 				5A86E6131E8133B900C54C09 /* debug.xcconfig */,
 				5AB6A8FE1E966617009BDBC3 /* libpng.xcodeproj */,
+				B0A1C0DE1E00000000000010 /* jpeg.xcodeproj */,
 				5A86E6141E8133B900C54C09 /* release.xcconfig */,
 			);
+			sourceTree = "<group>";
+		};
+		B0A1C0DE1E00000000000015 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B0A1C0DE1E00000000000013 /* libimageoptimjpeg.dylib */,
+			);
+			name = Products;
 			sourceTree = "<group>";
 		};
 		D047E4731E7D7DF00036F96B /* Products */ = {
@@ -232,7 +255,6 @@
 		D047E5211E7D87670036F96B /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				D047E52A1E7D8BFD0036F96B /* libimageoptimjpeg.dylib */,
 				D047E5221E7D87670036F96B /* liblibpng.dylib */,
 			);
 			name = Frameworks;
@@ -280,6 +302,7 @@
 			dependencies = (
 				5AB6A90A1E96661C009BDBC3 /* PBXTargetDependency */,
 				D047E4F01E7D86970036F96B /* PBXTargetDependency */,
+				B0A1C0DE1E00000000000014 /* PBXTargetDependency */,
 			);
 			name = guetzli;
 			productName = guetzli;
@@ -311,6 +334,10 @@
 					ProductGroup = 5AB6A8FF1E966617009BDBC3 /* Products */;
 					ProjectRef = 5AB6A8FE1E966617009BDBC3 /* libpng.xcodeproj */;
 				},
+				{
+					ProductGroup = B0A1C0DE1E00000000000015 /* Products */;
+					ProjectRef = B0A1C0DE1E00000000000010 /* jpeg.xcodeproj */;
+				},
 			);
 			projectRoot = "";
 			targets = (
@@ -333,6 +360,13 @@
 			fileType = archive.ar;
 			path = libstatic.a;
 			remoteRef = 5AB6A9071E966617009BDBC3 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		B0A1C0DE1E00000000000013 /* libimageoptimjpeg.dylib */ = {
+			isa = PBXReferenceProxy;
+			fileType = "compiled.mach-o.dylib";
+			path = libimageoptimjpeg.dylib;
+			remoteRef = B0A1C0DE1E00000000000011 /* PBXContainerItemProxy */;
 			sourceTree = BUILT_PRODUCTS_DIR;
 		};
 /* End PBXReferenceProxy section */
@@ -378,6 +412,11 @@
 			isa = PBXTargetDependency;
 			target = D047E4CE1E7D81720036F96B /* download */;
 			targetProxy = D047E4EF1E7D86970036F96B /* PBXContainerItemProxy */;
+		};
+		B0A1C0DE1E00000000000014 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = jpeg;
+			targetProxy = B0A1C0DE1E00000000000012 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -439,6 +478,10 @@
 		D047E4ED1E7D868D0036F96B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../libjpeg/build/$(CONFIGURATION)",
+				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 			};
@@ -447,6 +490,10 @@
 		D047E4EE1E7D868D0036F96B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../libjpeg/build/$(CONFIGURATION)",
+				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 			};

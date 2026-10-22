@@ -59,8 +59,9 @@ jobs:
               echo "预热第 $i 次已成功"
               exit 0
             fi
-            echo "预热第 $i 次未完成（下载尚未落盘），重试"
-            grep -E "error:" "/tmp/prewarm-$i.log" | head -5 || true
+            echo "预热第 $i 次未完成，最近的错误："
+            # 同时匹配 "error:" 与 rustc 的 "error[E0432]:" 形式，避免只看到 build rule 打的笼统提示
+            grep -nE "error(\[[A-Z0-9]+\])?:" "/tmp/prewarm-$i.log" | tail -12 || true
           done
           echo "预热 3 次仍未成功，由正式编译步骤报错"
 
