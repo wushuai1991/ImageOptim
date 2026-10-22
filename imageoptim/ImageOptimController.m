@@ -90,15 +90,10 @@ static BOOL statusBarCachedSelectable = NO;
 - (void)handleServices:(NSPasteboard *)pboard
               userData:(NSString *)userData
                  error:(NSString **)error {
-    NSArray *paths = [pboard propertyListForType:NSFilenamesPboardType];
-    if (paths && [paths count] > 0) {
-        [filesController performSelectorInBackground:@selector(addPaths:) withObject:paths];
-        return;
-    }
-
-    NSURL *url = [pboard propertyListForType:NSPasteboardTypeFileURL];
-    if (url) {
-        NSArray *urls = @[url];
+    // Finder 服务现在以 file URL（public.file-url）传文件，不再是路径字符串列表
+    NSArray<NSURL *> *urls = [pboard readObjectsForClasses:@[ [NSURL class] ]
+                                                  options:@{ NSPasteboardURLReadingFileURLsOnlyKey: @YES }];
+    if ([urls count] > 0) {
         [filesController performSelectorInBackground:@selector(addURLs:) withObject:urls];
     }
 }
@@ -297,11 +292,11 @@ static void appendFormatNameIfLossyEnabled(NSUserDefaults *defs, NSString *name,
 
     NSMutableData *html = [NSMutableData dataWithBytesNoCopy:(void *)header length:sizeof(header) freeWhenDone:NO];
     NSString*creditsPath = [[NSBundle mainBundle] pathForResource:@"Credits" ofType:@"html"];
-    NSData *credits = [NSData dataWithContentsOfFile:creditsPath];
-    if (!credits) {
+    NSData *creditsData = [NSData dataWithContentsOfFile:creditsPath];
+    if (!creditsData) {
         return;
     }
-    [html appendData:credits];
+    [html appendData:creditsData];
     NSAttributedString *tmpStr = [[NSAttributedString alloc]
               initWithHTML:html
         documentAttributes:nil];

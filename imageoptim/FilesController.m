@@ -52,7 +52,7 @@ static NSString *kIMDraggedRowIndexesPboardType = @"com.imageoptim.rows";
 
     [jobQueue addObserver:self forKeyPath:@"isBusy" options:0 context:NULL];
 
-    [tableView registerForDraggedTypes:@[ NSFilenamesPboardType, kIMDraggedRowIndexesPboardType ]];
+    [tableView registerForDraggedTypes:@[ NSPasteboardTypeFileURL, kIMDraggedRowIndexesPboardType ]];
 
     [self setSelectsInsertedObjects:NO];
 
@@ -100,23 +100,30 @@ static NSString *kIMDraggedRowIndexesPboardType = @"com.imageoptim.rows";
 - (BOOL)tableView:(NSTableView *)aTableView writeRowsWithIndexes:(NSIndexSet *)rowIndexes toPasteboard:(NSPasteboard *)pboard {
     if (!isEnabled) return NO;
 
-    NSArray *fileUrls = [[[self arrangedObjects] objectsAtIndexes:rowIndexes] valueForKey:@"filePath"];
+    NSArray<NSURL *> *fileUrls = [[[self arrangedObjects] objectsAtIndexes:rowIndexes] valueForKey:@"filePath"];
 
-    NSUInteger count = [fileUrls count];
-    if (count) {
-        NSArray *types = @[ NSFilenamesPboardType, kIMDraggedRowIndexesPboardType ];
-        if (count == 1) {
-            types = [types arrayByAddingObject:NSURLPboardType];
-        }
-        [pboard declareTypes:types owner:nil];
-        if (count == 1) {
-            [[fileUrls firstObject] writeToPasteboard:pboard];
-        }
-        return [pboard setPropertyList:[fileUrls valueForKey:@"path"] forType:NSFilenamesPboardType] &&
-               [pboard setData:[NSKeyedArchiver archivedDataWithRootObject:rowIndexes]
-                       forType:kIMDraggedRowIndexesPboardType];
+    if (![fileUrls count]) {
+        return NO;
     }
-    return NO;
+
+    [pboard clearContents];
+
+    // NSURL 自己按 public.file-url 写入，不再塞已废弃的 NSFilenamesPboardType 路径列表
+    BOOL wroteURLs = [pboard writeObjects:fileUrls];
+    if ([fileUrls count] == 1) {
+        [pboard addTypes:@[ NSPasteboardTypeURL ] owner:nil];
+        [pboard setString:[[fileUrls firstObject] absoluteString] forType:NSPasteboardTypeURL];
+    }
+
+    NSData *indexesData = [NSKeyedArchiver archivedDataWithRootObject:rowIndexes
+                                                requiringSecureCoding:YES
+                                                                error:NULL];
+    if (indexesData) {
+        [pboard addTypes:@[ kIMDraggedRowIndexesPboardType ] owner:nil];
+        [pboard setData:indexesData forType:kIMDraggedRowIndexesPboardType];
+    }
+
+    return wroteURLs && indexesData != nil;
 }
 
 - (void)removeObjects:(NSArray *)objects {
@@ -200,7 +207,14 @@ static NSString *kIMDraggedRowIndexesPboardType = @"com.imageoptim.rows";
     NSData *indexesArchived;
 
     if ([info draggingSource] == aTableView && (indexesArchived = [pboard dataForType:kIMDraggedRowIndexesPboardType])) {
-        NSIndexSet *indexSet = [NSKeyedUnarchiver unarchiveObjectWithData:indexesArchived];
+        NSError *unarchiveError = nil;
+        NSIndexSet *indexSet = [NSKeyedUnarchiver unarchivedObjectOfClass:[NSIndexSet class]
+                                                                 fromData:indexesArchived
+                                                                    error:&unarchiveError];
+        if (!indexSet) {
+            IOWarn("Can't unarchive dragged row indexes: %@", unarchiveError);
+            return NO;
+        }
 
         NSIndexSet *selection = [self selectionIndexes];
         BOOL containsSelection = [selection containsIndexes:indexSet];
@@ -221,9 +235,12 @@ static NSString *kIMDraggedRowIndexesPboardType = @"com.imageoptim.rows";
 
         return YES;
     } else {
-        NSArray *paths = [pboard propertyListForType:NSFilenamesPboardType];
+        NSArray<NSURL *> *urls = [pboard readObjectsForClasses:@[ [NSURL class] ]
+                                                       options:@{ NSPasteboardURLReadingFileURLsOnlyKey: @YES }];
         [self setRow:row];
-        [self performSelectorInBackground:@selector(addPaths:) withObject:paths];
+        if ([urls count]) {
+            [self performSelectorInBackground:@selector(addURLs:) withObject:urls];
+        }
     }
 
     [[aTableView window] makeKeyAndOrderFront:aTableView];

@@ -43,10 +43,17 @@
     };
     if ([filePaths count]) {
         NSPasteboard *pboard = [NSPasteboard generalPasteboard];
+        [pboard clearContents];
 
-        [pboard declareTypes:@[ NSFilenamesPboardType, NSStringPboardType ] owner:self];
-        [pboard setPropertyList:filePaths forType:NSFilenamesPboardType];
-        [pboard setString:[fileNames componentsJoinedByString:@"\n"] forType:NSStringPboardType];
+        // 文件以 file URL（public.file-url）写入；纯文本仍是 percent-encoded 文件名，与旧行为一致
+        NSMutableArray<NSURL *> *urls = [NSMutableArray arrayWithCapacity:[filePaths count]];
+        for (NSString *path in filePaths) {
+            [urls addObject:[NSURL fileURLWithPath:path]];
+        }
+        [pboard writeObjects:urls];
+
+        [pboard addTypes:@[ NSPasteboardTypeString ] owner:nil];
+        [pboard setString:[fileNames componentsJoinedByString:@"\n"] forType:NSPasteboardTypeString];
     }
 }
 
@@ -88,8 +95,8 @@
 
     NSPasteboard *pboard = [NSPasteboard generalPasteboard];
 
-    [pboard declareTypes:@[ NSStringPboardType ] owner:nil];
-    [pboard setString:[urls componentsJoinedByString:@"\n"] forType:NSStringPboardType];
+    [pboard clearContents];
+    [pboard setString:[urls componentsJoinedByString:@"\n"] forType:NSPasteboardTypeString];
 }
 
 - (IBAction)cut:(id)sender {
@@ -101,14 +108,13 @@
 - (IBAction)paste:(id)sender {
     NSPasteboard *pboard = [NSPasteboard generalPasteboard];
 
-    NSArray *paths = [pboard propertyListForType:NSFilenamesPboardType];
-    NSMutableArray *urls = [NSMutableArray arrayWithCapacity:[paths count]];
-    for (NSString *path in paths) {
-        [urls addObject:[NSURL fileURLWithPath:path]];
-    }
+    NSArray<NSURL *> *urls = [pboard readObjectsForClasses:@[ [NSURL class] ]
+                                                   options:@{ NSPasteboardURLReadingFileURLsOnlyKey: @YES }];
 
     FilesController *f = (FilesController *)[self delegate];
-    [f addURLsBelowSelection:urls];
+    if ([urls count]) {
+        [f addURLsBelowSelection:urls];
+    }
 }
 
 - (BOOL)validateMenuItem:(NSMenuItem *)menuItem {
@@ -121,8 +127,9 @@
         return [data respondsToSelector:@selector(base64Encoding)] && [self numberOfSelectedRows] > 0 && [[self filesForDataURI] count] > 0;
     } else if (action == @selector(paste:)) {
         NSPasteboard *pboard = [NSPasteboard generalPasteboard];
-        NSArray *paths = [pboard propertyListForType:NSFilenamesPboardType];
-        return [paths count] > 0;
+        NSArray<NSURL *> *urls = [pboard readObjectsForClasses:@[ [NSURL class] ]
+                                                       options:@{ NSPasteboardURLReadingFileURLsOnlyKey: @YES }];
+        return [urls count] > 0;
     } else if (action == @selector(selectAll:)) {
         return [self numberOfRows] > 0;
     }
@@ -166,7 +173,12 @@
     for (NSInteger row = visibleRows.location; row < visibleRows.location + visibleRows.length; row++) {
         // If it is a "full width" cell, we don't have to go through the rows
         for (NSInteger col = [visibleColIndexes firstIndex]; col != NSNotFound; col = [visibleColIndexes indexGreaterThanIndex:col]) {
+            // 这是 cell-based 表格获取"已装配 cell"的唯一途径。-viewAtColumn:row: 只对 view-based
+            // 表格有效，替换它等于把 RevealButtonCell 整体迁到 NSView 架构（另议），故此处就地压制。
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
             NSCell *cell = [self preparedCellAtColumn:col row:row];
+#pragma clang diagnostic pop
             if ([cell isKindOfClass:[RevealButtonCell class]]) {
                 RevealButtonCell *imagecell = (id)cell;
                 NSDictionary *userInfo = @{@"Col": @(col),
@@ -185,7 +197,11 @@
     NSNumber *col = [userInfo valueForKey:@"Col"];
     if (row && col) {
         NSInteger rowVal = [row integerValue], colVal = [col integerValue];
+        // 同 updateTrackingAreas 里的说明：cell-based 表格没有 view-based 等价 API
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
         RevealButtonCell *cell = (RevealButtonCell *)[self preparedCellAtColumn:colVal row:rowVal];
+#pragma clang diagnostic pop
         assert([cell isKindOfClass:[RevealButtonCell class]]);
 
         if (iMouseCell != cell) {

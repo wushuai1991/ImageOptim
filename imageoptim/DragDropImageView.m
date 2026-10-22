@@ -11,7 +11,7 @@
 @implementation DragDropImageView
 
 - (void)awakeFromNib {
-    [self registerForDraggedTypes:@[ NSFilenamesPboardType ]];
+    [self registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
 }
 
 - (BOOL)allowsVibrancy {
@@ -47,7 +47,7 @@
     NSRect rect = self.bounds;
 
     [[NSColor clearColor] set];
-    NSRectFillUsingOperation(rect, NSCompositeSourceOver);
+    NSRectFillUsingOperation(rect, NSCompositingOperationSourceOver);
 
     NSColor *gray = [[NSColor secondaryLabelColor] colorWithAlphaComponent:highlight ? 1.0/4.0 : 1.0/8.0];
     [gray set];
@@ -91,8 +91,18 @@
 
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
     if ([sender draggingSource] != self) {
-        NSArray *files = [[sender draggingPasteboard] propertyListForType:NSFilenamesPboardType];
-        [filesController performSelectorInBackground:@selector(addPaths:) withObject:files];
+        // 拖放数据现在以 file URL 形式提供（NSPasteboardTypeFileURL），不再是路径字符串列表
+        NSArray<NSURL *> *urls = [[sender draggingPasteboard] readObjectsForClasses:@[ [NSURL class] ]
+                                                                           options:@{ NSPasteboardURLReadingFileURLsOnlyKey: @YES }];
+        NSMutableArray<NSString *> *paths = [NSMutableArray arrayWithCapacity:[urls count]];
+        for (NSURL *url in urls) {
+            if (url.path) {
+                [paths addObject:url.path];
+            }
+        }
+        if ([paths count]) {
+            [filesController performSelectorInBackground:@selector(addPaths:) withObject:paths];
+        }
     }
     return YES;
 }
