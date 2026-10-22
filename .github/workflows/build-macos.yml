@@ -50,6 +50,7 @@ jobs:
                  -project imageoptim/ImageOptim.xcodeproj \
                  -target Backend \
                  -configuration Debug \
+                 ARCHS=$(uname -m) \
                  ONLY_ACTIVE_ARCH=YES \
                  CODE_SIGNING_ALLOWED=NO \
                  CODE_SIGNING_REQUIRED=NO \
@@ -77,6 +78,7 @@ jobs:
             -project imageoptim/ImageOptim.xcodeproj \
             -target Backend \
             -configuration Debug \
+            ARCHS=$(uname -m) \
             ONLY_ACTIVE_ARCH=YES \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -92,6 +94,7 @@ jobs:
             -project imageoptim/ImageOptim.xcodeproj \
             -scheme ImageOptim \
             -configuration Debug \
+            ARCHS=$(uname -m) \
             ONLY_ACTIVE_ARCH=YES \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -110,6 +113,7 @@ jobs:
             -scheme BackendTests \
             -configuration Debug \
             -destination 'platform=macOS' \
+            ARCHS=$(uname -m) \
             ONLY_ACTIVE_ARCH=YES \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
