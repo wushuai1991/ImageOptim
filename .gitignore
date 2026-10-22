@@ -145,6 +145,8 @@ gifsicle/patched
 pngcrush/patched
 svgo/build/
 svgo/node_modules/
+# npm install 生成，项目不锁定该锁文件
+svgo/package-lock.json
 pngcrush/tmp/
 pngcrush/LICENSE
 
