@@ -132,26 +132,10 @@ pngcrush/*.h
 pngcrush/*.html
 pngcrush/build
 pngcrush/DerivedData
-zlib/*.3
-zlib/*.c
-zlib/*.com
-zlib/*.h
-zlib/*.in
-zlib/*.txt
-zlib/amiga
-zlib/as400
-zlib/ChangeLog
-zlib/configure
-zlib/contrib
-zlib/examples
-zlib/FAQ
-zlib/INDEX
-zlib/msdos
-zlib/old
-zlib/projects
-zlib/qnx
-zlib/README
-zlib/win32
+# zlib 源码由 libpng 的 download-zlib target 解压 optipng 包生成，仓库只保留 Makefile。
+# 逐条列出容易漏（doc/ test/ watcom/ treebuild.xml 等），直接忽略整个目录再反选 Makefile。
+zlib/*
+!zlib/Makefile
 imageoptim/*.lproj/Help/Help.helpindex
 pngquant/build/*
 pngcrush/Makefile-nolib
