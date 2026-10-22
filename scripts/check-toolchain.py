@@ -17,6 +17,15 @@ import re
 import sys
 from pathlib import Path
 
+# Windows CI 的控制台默认是 cp1252，打印中文会直接 UnicodeEncodeError 让检查失败。
+# 这里强制 UTF-8 输出（不可编码字符降级为替代符，宁可日志难看也不能让检查崩掉）。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        # 被重定向成非 TextIOWrapper 时没有 reconfigure，忽略即可
+        pass
+
 VALID_TYPES = {"png", "jpeg", "gif", "svg", "bmp", "webp"}
 VALID_FLAGS = {"lossyEnabled", "noLossyYet"}
 NUMERIC_OPS = {"gt", "lt", "gte", "lte"}
