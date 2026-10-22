@@ -132,8 +132,9 @@
     CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
     CGContextRef context = NULL;
     if (width && height && colorSpace) {
+        // 两个枚举分属 CGImageAlphaInfo 与 CGBitmapInfo，clang 21 起对混用报 -Wenum-enum-conversion，需显式转换
         context = CGBitmapContextCreate(NULL, width, height, 8, 0, colorSpace,
-                                        kCGImageAlphaNoneSkipLast | kCGBitmapByteOrderDefault);
+                                        (CGBitmapInfo)kCGImageAlphaNoneSkipLast | kCGBitmapByteOrderDefault);
     }
 
     if (context) {
