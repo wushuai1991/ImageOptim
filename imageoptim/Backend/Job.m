@@ -186,6 +186,30 @@
     [self didChangeValueForKey:@"byteSizeOptimized"];
 }
 
+- (BOOL)isFormatConversion {
+    File *optimized = self.wipInput ?: self.savedOutput;
+    File *original = self.unoptimizedInput;
+    return optimized && original && optimized->fileType != original->fileType;
+}
+
+- (BOOL)setConversionOutput:(TempFile *)newFile toolName:(NSString *)toolname {
+    if (!newFile) {
+        return NO;
+    }
+
+    @synchronized(self) {
+        IODebug("%@ converted file %@ from %lu to %lu bytes in %@",
+                toolname, _unoptimizedInput.path.path,
+                (unsigned long)self.unoptimizedInput.byteSize, (unsigned long)newFile.byteSize,
+                newFile.path.path);
+
+        [self setFileOptimized:newFile];
+        // 转换是最后一步，直接用它作为"最佳工具"名字，避免体积变大时被 updateBestToolName 判为无收益
+        [self performSelectorOnMainThread:@selector(setBestToolName:) withObject:toolname waitUntilDone:NO];
+    }
+    return YES;
+}
+
 - (BOOL)setFileOptimized:(TempFile *)newFile toolName:(NSString *)toolname {
     if (!newFile) {
         return NO;
@@ -578,7 +602,8 @@
 
 - (void)saveResultAndUpdateStatus {
     assert([self isBusy]);
-    if ([self isOptimized]) {
+    // 格式转换即使体积变大也要落盘（换格式本身是目的）
+    if ([self isOptimized] || [self isFormatConversion]) {
         BOOL saved = [self saveResult];
         self.isDone = YES;
         [self stopAllWorkers];

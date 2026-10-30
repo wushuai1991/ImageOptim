@@ -80,8 +80,8 @@
         return;
     }
 
-    // 只在此次转换结果更小时才采纳（极小图可能反而是 JPEG 更大）
-    [self.job setFileOptimized:output toolName:[self toolName]];
+    // 转换结果一律采纳：WebP/BMP 换成 JPEG 后体积变大也正常（换格式才是目的）
+    [self.job setConversionOutput:output toolName:[self toolName]];
 }
 
 /// PNG/BMP/WebP → JPEG。系统解码器（ImageIO）打不开时退到 dwebp。

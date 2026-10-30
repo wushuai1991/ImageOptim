@@ -75,7 +75,8 @@ public sealed class JpegConvertWorker : Worker
             FileType.Webp => "WebP→JPEG",
             _ => "PNG→JPEG",
         };
-        return Job.SetFileOptimized(tempPath, toolName, FileType.Jpeg);
+        // force：转换为 JPEG 后体积变大也照常采纳（换格式才是目的）
+        return Job.SetFileOptimized(tempPath, toolName, FileType.Jpeg, force: true);
     }
 
     private static BitmapFrame? DecodeFrame(string path)

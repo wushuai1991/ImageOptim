@@ -49,6 +49,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (BOOL)setFileOptimized:(nullable TempFile *)f toolName:(NSString *)s;
 
+/// 格式转换（如 WebP→JPEG）的产物不参与体积比较：换格式本身是目的，
+/// 即使体积变大也要采纳，否则用户永远拿不到目标格式。
+- (BOOL)setConversionOutput:(nullable TempFile *)f toolName:(NSString *)s;
+
+/// 当前产物与原图格式不同（即正在做格式转换）
+@property (readonly) BOOL isFormatConversion;
+
 - (nullable instancetype)initWithFilePath:(NSURL *)aPath resultsDatabase:(nullable ResultsDb *)aDb;
 - (void)updateStatusOfWorker:(nullable Worker *)currentWorker running:(BOOL)started;
 

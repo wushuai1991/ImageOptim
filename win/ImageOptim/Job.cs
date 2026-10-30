@@ -155,6 +155,13 @@ public sealed class Job
         return optimizedFile.ByteSize < _unoptimizedInput.ByteSize;
     }
 
+    /// <summary>当前产物与原图格式不同（正在做格式转换）。</summary>
+    private bool IsConversionLocked()
+    {
+        var optimized = _wipInput ?? _savedOutput;
+        return optimized != null && _unoptimizedInput != null && optimized.Type != _unoptimizedInput.Type;
+    }
+
     private bool CanRevertLocked() => _revertFile != null && _isDone && !_stopping;
 
     private bool IsBusyLocked() => _workers.Count > 0;
@@ -428,7 +435,7 @@ public sealed class Job
     /// 产物类型与输入不同时（格式转换 PNG/BMP → JPEG）需要显式指定，
     /// 否则保存逻辑无法识别这是一次格式转换。
     /// </param>
-    public bool SetFileOptimized(string tempPath, string toolName, FileType? overrideType = null)
+    public bool SetFileOptimized(string tempPath, string toolName, FileType? overrideType = null, bool force = false)
     {
         if (!File.Exists(tempPath))
             return false;
@@ -445,7 +452,8 @@ public sealed class Job
                 return false;
             long oldSize = oldFile.ByteSize;
 
-            bool isSmaller = newSize < oldSize;
+            // force：格式转换（WebP/BMP→JPEG）即使体积变大也要采纳
+            bool isSmaller = force || newSize < oldSize;
             Debug.WriteLine($"{toolName} {(isSmaller ? "优化了" : "未优化")} 文件: {oldSize} -> {newSize}");
 
             if (!isSmaller)
@@ -502,7 +510,8 @@ public sealed class Job
         string? tempToCleanup = null;
         lock (_lock)
         {
-            needSave = IsOptimizedLocked();
+            // 格式转换即使体积变大也要保存（换格式本身是目的）
+            needSave = IsOptimizedLocked() || IsConversionLocked();
             if (!needSave)
             {
                 // 未产生更小结果：如果 _wipInput 是临时文件，需清理
